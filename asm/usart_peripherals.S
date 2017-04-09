@@ -8,13 +8,14 @@
 
 
 ;;
-; ---------------------------------------
-; void ble_send_next_char(char *byte[Z]);
-; ---------------------------------------
+; ----------------------------------------------------------------------------
+; void ble_send_next_char(char *byte[Z], char len[LENGTH], char strict[CHAR]);
+; ----------------------------------------------------------------------------
 ;
 ; Reads next character from SRAM under pointer 'Z' and sends it.
 ; The procedure ends when 'LENGTH' characters is transmitted,
 ; interrupt is then disabled, flag is cleared.
+; //TODO
 ;;
 ble_send_next_char:
     ; Read the next character
@@ -25,10 +26,17 @@ ble_send_next_char:
 
     ; Check if the number of characters to send is reached
     DEC   LENGTH
-    BREQ  ble_send_next_char_null
-    RET
+    BREQ  ble_send_next_char_last
 
-ble_send_next_char_null:
+    ; Check if the end character should be ignored
+    CPI   CHAR, 0x00
+    BRNE  ble_send_next_char_end
+
+    ; Check for the end of string
+    CPI   TEMP, 0x0A
+    BRNE  ble_send_next_char_end
+
+ble_send_next_char_last:
     ; Disallow interrupts on empty USART buffer
     LDS   TEMP, UCSR0B
     ANDI  TEMP, ~(1 << UDRIE0)
@@ -36,15 +44,18 @@ ble_send_next_char_null:
 
     ; Notify end of transmission by clearing the flag
     CBR   MFLAGS, (1 << MF_T)
+
+ble_send_next_char_end:
 RET
 
 
 ;;
-; --------------------------------------------
-; void ble_ntransmit(char *data, char length);
-; --------------------------------------------
+; ---------------------------------------------------------
+; void ble_ntransmit(char *data, char length, char strict);
+; ---------------------------------------------------------
 ;
 ; Transmits first 'length' characters of given string.
+; //TODO
 ;;
 .global ble_ntransmit
 ble_ntransmit:
@@ -56,6 +67,9 @@ ble_ntransmit:
 
     ; Set the number of characters to transmit
     MOV   LENGTH, r22
+
+    ; Store the 'strict' boolean
+    MOV   CHAR, r20
 
     ; Set the flag to indicate transmission
     SBR   MFLAGS, (1 << MF_T)
@@ -97,6 +111,7 @@ RET
 ; which it will post-increment.
 ; After reading 'LENGTH' characters, or when 0x0A='\n' is received,
 ; receiving procedure ends.
+; //TODO
 ;;
 ble_receive_next_char:
     ; Read the character
@@ -105,12 +120,18 @@ ble_receive_next_char:
 
     ; Check the number of remaining characters
     DEC   LENGTH
-    BREQ  ble_receive_next_char_end
+    BREQ  ble_receive_next_char_last
+
+    ; Check if the end character should be ignored
+    CPI   CHAR, 0x00
+    BRNE  ble_receive_next_char_end
 
     ; Check for the end of string
     CPI   TEMP, 0x0A
     BRNE  ble_receive_next_char_end
 
+    ; Stop receiving more characters
+ble_receive_next_char_last:
     ; Disallow interrupts on received character
     LDS   TEMP, UCSR0B
     ANDI  TEMP, ~(1 << RXCIE0)
@@ -124,12 +145,13 @@ RET
 
 
 ;;
-; ---------------------------------------------
-; void ble_nreceive(char *buffer, char length);
-; ---------------------------------------------
+; ----------------------------------------------------------
+; void ble_nreceive(char *buffer, char length, char strict);
+; ----------------------------------------------------------
 ;
 ; Receives and stores bytes into given buffer until it receives 0x0A='\n'
 ; or limit for number of characters 'length' is reached.
+; //TODO
 ;;
 .global ble_nreceive
 ble_nreceive:
@@ -141,6 +163,9 @@ ble_nreceive:
 
     ; Maximum length of received string is limited
     MOV   LENGTH, r22
+
+    ; Store the 'strict' boolean
+    MOV   CHAR, r20
 
     ; Set the flag to indicate receiving
     SBR   MFLAGS, (1 << MF_R)
@@ -171,144 +196,3 @@ ble_receive_loop_end:
     CLR   r1
     POP   r0
 RET
-
-
-/*
-;;
-; Odešle daný řetězec zakončený 0x00.
-;;
-.global ble_transmit
-ble_transmit:
-    PUSH  r0
-    PUSH  r28
-    PUSH  r29
-
-    ; Napointerování prvního znaku odesílaného řetězce
-    MOV   ZH, r25
-    MOV   ZL, r24
-
-;;TODO: překontrolovat!, dělalo to kdysi MP neplechu
-    ; Nastavení délky odesílaného řetězce
-    LDI   LENGTH, 255
-
-    ; Přečti první znak
-    LD    TEMP, Z
-
-    ; Pokud jsme na konci řetězce, nic neodesíláme
-    CPI   TEMP, 0x00
-    BREQ  ble_transmit_end
-
-    ; Nastavení flagu pro odesílání
-    SBR   MFLAGS, (1 << MF_T)
-
-    ; Nastavení IDLE režimu a povolení spánku
-    LDI   TEMP, (1 << SE)
-    OUT   SMCR, TEMP
-
-    ; Povolí přerušení na vyprázdněný buffer
-    LDS   TEMP, UCSR0B
-    ORI   TEMP, (1 << UDRIE0)
-    STS   UCSR0B, TEMP
-
-    ; Spíme dokud jsou data odesílána
-ble_transmit_loop:
-    SBRC  MFLAGS, MF_T
-    RJMP  ble_transmit_loop_sleep
-    RJMP  ble_transmit_loop_end
-ble_transmit_loop_sleep:
-    SLEEP
-    RJMP  ble_transmit_loop
-ble_transmit_loop_end:
-
-    ; Slušné vyčištění registru spánku
-    LDI   TEMP, 0x00
-    OUT   SMCR, TEMP
-
-ble_transmit_end:
-    POP   r29
-    POP   r28
-    CLR   r1
-    POP   r0
-RET
-
-
-;;
-; Odešle daný řetězec na vstupu a vrátí řetězec odpovědi.
-;;
-.global ble_commmand
-ble_commmand:
-    PUSH  r0
-    PUSH  r28
-    PUSH  r29
-
-    ; Napointerování prvního znaku odesílaného řetězce
-    MOV   ZH, r25
-    MOV   ZL, r24
-
-    ; Napointerování první pozice pole pro přijímaný řetězec
-    MOV   YH, r23
-    MOV   YL, r22
-
-    ; Délka čteného řetězce
-    MOV   LENGTH, r20
-
-    ; Nastavení flagů pro odesílání a příjem dat
-    SBR   MFLAGS, (1 << MF_T)
-    SBR   MFLAGS, (1 << MF_R)
-
-    ; Nastavení IDLE režimu a povolení spánku
-    LDI   TEMP, (1 << SE)
-    OUT   SMCR, TEMP
-
-    ;-------------------;
-    ;-  Odesílání dat  -;
-    ;-------------------;
-
-    ; Povolí přerušení na vyprázdněný buffer
-    LDS   TEMP, UCSR0B
-    ORI   TEMP, (1 << UDRIE0)
-    STS   UCSR0B, TEMP
-
-    ; Spíme dokud jsou data odesílána
-ble_send_commmand_transmit:
-    SBRC  MFLAGS, MF_T
-    RJMP  ble_send_commmand_transmit_sleep
-    RJMP  ble_send_commmand_transmit_end
-ble_send_commmand_transmit_sleep:
-    SLEEP
-    RJMP  ble_send_commmand_transmit
-ble_send_commmand_transmit_end:
-
-    ;----------------;
-    ;-  Příjem dat  -;
-    ;----------------;
-
-    ; Napointerování první pozice pole pro přijímaný řetězec
-    MOV   ZH, YH
-    MOV   ZL, YL
-
-    ; Povolí přerušení na příjem dat
-    LDS   TEMP, UCSR0B
-    ORI   TEMP, (1 << RXCIE0)
-    STS   UCSR0B, TEMP
-
-    ; Spíme dokud jsou data přijímána
-ble_send_commmand_receive:
-    SBRC  MFLAGS, MF_R
-    RJMP  ble_send_commmand_receive_sleep
-    RJMP  ble_send_commmand_receive_end
-ble_send_commmand_receive_sleep:
-    SLEEP
-    RJMP  ble_send_commmand_receive
-ble_send_commmand_receive_end:
-
-    ; Slušné vyčištění registru spánku
-    LDI   TEMP, 0x00
-    OUT   SMCR, TEMP
-
-    POP   r29
-    POP   r28
-    CLR   r1
-    POP   r0
-RET
-*/

@@ -16,7 +16,7 @@
  * USART Rx Complete
  */
 ISR(USART_RX_vect, ISR_NAKED;) {
-    asm ("rjmp handle_urxc"::);
+    asm ("jmp handle_urxc"::);
 }
 
 /**
@@ -24,7 +24,7 @@ ISR(USART_RX_vect, ISR_NAKED;) {
  * USART Data Register Empty
  */
 ISR(USART_UDRE_vect, ISR_NAKED) {
-    asm ("rjmp handle_udre"::);
+    asm ("jmp handle_udre"::);
 }
 
 /**
@@ -32,7 +32,7 @@ ISR(USART_UDRE_vect, ISR_NAKED) {
  * 2-wire Serial Interface
  */
 ISR(TWI_vect, ISR_NAKED) {
-    asm ("rjmp handle_twi"::);
+    asm ("jmp handle_twi"::);
 }
 
 /**
@@ -40,7 +40,7 @@ ISR(TWI_vect, ISR_NAKED) {
  * External Interrupt 0
  */
 ISR(INT0_vect, ISR_NAKED) {
-    asm ("rjmp handle_int0"::);
+    asm ("jmp handle_int0"::);
 }
 
 

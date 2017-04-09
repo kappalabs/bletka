@@ -38,6 +38,43 @@ delay_1136us_loop:
     BRNE  delay_1136us_loop
 RET
 
+;;
+; ----------------------
+; void delay_10ms(void);
+; ----------------------
+;
+; Exactly 10ms, 40k - 7 cycles (for RCALL & RET).
+;;
+.global delay_10ms
+delay_10ms:
+    LDI  A, 52
+    LDI  B, 240
+delay_10ms_loop:
+    DEC  B
+    BRNE delay_10ms_loop
+    DEC  A
+    BRNE delay_10ms_loop
+RET
+
+;;
+; ----------------------
+; void delay_20ms(void);
+; ----------------------
+;
+; Exactly 20ms, 80k - 7 cycles (for RCALL & RET).
+;;
+.global delay_20ms
+delay_20ms:
+    LDI  A, 104
+    LDI  B, 226
+delay_20ms_loop:
+    DEC  B
+    BRNE delay_20ms_loop
+    DEC  A
+    BRNE delay_20ms_loop
+    NOP
+    NOP
+RET
 
 ;;
 ; ----------------------

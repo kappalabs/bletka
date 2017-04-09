@@ -28,8 +28,9 @@
 #define TIMERAM_OFFSET      0x00 // within RTC module
 #define TIMERAM_LENGTH      7
 
-#define RECRAM_BYTES        4096
-#define RECRAM_MAX_RECS     (RECRAM_BYTES / RECORD_LENGTH)
+#define RECROM_BYTES        4096
+#define RECROM_MAX_RECS     (RECROM_BYTES / RECORD_LENGTH)
+#define RECROM_DEL_OFFSET   2
 #define RECRAM_OFFSET       0x08 // within RTC module
 #define RECRAM_MAGIC        "BTK"
 #define MAGIC_LOFFSET       0x00 // within local buffer!
@@ -43,8 +44,9 @@
 #define FREESLOT_LENGTH     2
 #define RECRAM_LENGTH       (MAGIC_LENGTH + NUMREC_LENGTH + FREESLOT_LENGTH)
 
-#define RECROM_HEADER_OFFSET    0X00
-#define RECROM_HEADER_LENGTH    1
+#define RECROM_HEADER_OFFSET        0x00
+#define RECROM_HEADER_LENGTH        1
+#define RECROM_HEADER_SHIFT_MASK    0x03
 
 
 /**
@@ -53,15 +55,32 @@
 char _timeram_buff[TIMERAM_LENGTH];
 
 
+extern bool recram_update(unsigned int new_num_recs, unsigned int new_free_slot);
+extern void recram_read(unsigned int *num_recs, unsigned int *free_slot);
+
 extern void init_recmanager(void);
 
 extern void print_eeprom(void);
 
-extern void put_record(char *record, unsigned int position);
+extern void put_record(unsigned int position, char *record);
 
+extern void get_record(unsigned int position, char *record);
+
+/**
+ * Adds given record to the RECMEM.
+ *
+ * @param record The record to be saved.
+ * @return If the record was saved successfully.
+ */
 extern bool save_record(char *record);
 
-extern void remove_record(unsigned int position);
+/**
+ * Makes the records at given position invalid by deleting
+ * appropriate bytes.
+ *
+ * @param position Position of the record to delete.
+ */
+extern void destroy_record(unsigned int position);
 
 extern void print_recram(void);
 
@@ -72,7 +91,14 @@ extern void print_recram(void);
 extern void _update_timestamp(void);
 
 /**
+ * Destroys all records in RECROM and prepares the RECRAM
+ * for new set of records.
+ */
+extern void recmem_rotate(void);
+
+/**
  * Resets the RECRAM to default settings.
+ * Destroys all records in RECROM.
  * Writes magic and initializes the variables to zero.
  */
 extern void recram_reset(void);

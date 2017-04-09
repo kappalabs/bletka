@@ -465,6 +465,9 @@ memory_write_loop_end:
     ; Ukončení komunikace
     RCALL twi_stop
 
+    ; Delay according the documentation when on >=2.5-volt
+    RCALL delay_10ms
+
     POP   r29
     POP   r28
     CLR   r1

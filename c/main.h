@@ -11,6 +11,9 @@
  */
 
 
+#include <stdbool.h>
+
+
 /*
  * Defines of command codes. Must be unique for each one of them.
  * External (Android) software must use the same codes for the communication to work.
@@ -40,11 +43,16 @@
 #define CMD_SET_LEDMODE     0x88
 #define CMD_SET_BEEPMODE    0x89
 #define CMD_EXIT            0x8A
+#define CMD_OK              0x8B
+#define CMD_ERR             0x8C
+#define CMD_RECMEM_PURGE    0x8D
 
 #define MIN(X, Y)           (((X) < (Y)) ? (X) : (Y))
 
 
 /* delays.S */
+extern void delay_10ms(void);
+extern void delay_20ms(void);
 extern void delay_50ms(void);
 extern void delay_100ms(void);
 extern void delay_1s(void);
@@ -64,8 +72,24 @@ extern void recrom_read(unsigned int position, unsigned char length, char *buffe
 extern void recrom_write(unsigned int position, unsigned char length, char *buffer);
 
 /* usart_peripherals.S */
-extern void ble_nreceive(char *buffer, unsigned char length);
-extern void ble_ntransmit(char *buffer, unsigned char length);
+/**
+ * Receives and stores bytes into given buffer until it receives 0x0A='\n'
+ * or limit for number of characters 'length' is reached.
+ *
+ * @param buffer Buffer in which the result is placed.
+ * @param length Maximum number of characters to be received.
+ * @param strict If true, exactly 'length' characters will be read, '\n' character is therefore ignored.
+ */
+extern void ble_nreceive(char *buffer, unsigned char length, bool strict);
+/**
+ * Transmits bytes through BLE module until it receives 0x0A='\n'
+ * or limit for number of characters 'length' is reached.
+ *
+ * @param buffer Buffer with data to be transmitted.
+ * @param length Maximum number of characters to be transmitted.
+ * @param strict If true, exactly 'length' characters will be transmitted, '\n' character is therefore ignored.
+ */
+extern void ble_ntransmit(char *buffer, unsigned char length, bool strict);
 
 /* utils.S */
 /**
