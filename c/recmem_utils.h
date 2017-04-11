@@ -52,19 +52,21 @@
 /**
  * Buffer accessed both from assembly & C code.
  */
-char _timeram_buff[TIMERAM_LENGTH];
+volatile char _timeram_buff[TIMERAM_LENGTH];
 
 
-extern bool recram_update(unsigned int new_num_recs, unsigned int new_free_slot);
-extern void recram_read(unsigned int *num_recs, unsigned int *free_slot);
+bool recram_update(unsigned int new_num_recs, unsigned int new_free_slot);
+void recram_read(unsigned int *num_recs, unsigned int *free_slot);
 
-extern void init_recmanager(void);
+void init_recmanager(void);
 
-extern void print_eeprom(void);
+void print_recram(void);
 
-extern void put_record(unsigned int position, char *record);
+void print_eeprom(void);
 
-extern void get_record(unsigned int position, char *record);
+void put_record(unsigned int position, char *record);
+
+void get_record(unsigned int position, char *record);
 
 /**
  * Adds given record to the RECMEM.
@@ -72,7 +74,7 @@ extern void get_record(unsigned int position, char *record);
  * @param record The record to be saved.
  * @return If the record was saved successfully.
  */
-extern bool save_record(char *record);
+bool save_record(char *record);
 
 /**
  * Makes the records at given position invalid by deleting
@@ -80,34 +82,34 @@ extern bool save_record(char *record);
  *
  * @param position Position of the record to delete.
  */
-extern void destroy_record(unsigned int position);
+void destroy_record(unsigned int position);
 
-extern void print_recram(void);
+void print_recram(void);
 
 /**
  * Updates the time information in '_tmp_buff' to contain
  * compressed version of current time.
  */
-extern void _update_timestamp(void);
+void _update_timestamp(void);
 
 /**
  * Destroys all records in RECROM and prepares the RECRAM
  * for new set of records.
  */
-extern void recmem_rotate(void);
+void recmem_rotate(void);
 
 /**
  * Resets the RECRAM to default settings.
  * Destroys all records in RECROM.
  * Writes magic and initializes the variables to zero.
  */
-extern void recram_reset(void);
+void recram_reset(void);
 
 /**
  * Initializes the RECMEM (records memory).
  * Should be called only once, to prepare the device for functioning.
  */
-extern void recmem_purge(void);
+void recmem_purge(void);
 
 
 #endif //BLETKA_RECMEM_UTILS_H

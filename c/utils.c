@@ -1,5 +1,8 @@
 
+#include <ctype.h>
+
 #include "utils.h"
+#include "ble_utils.h"
 
 
 void led_blink(void) {
@@ -32,4 +35,12 @@ bool streq(char *str1, char *str2) {
         ++pos;
     }
     return str1[pos] == '\n' && str2[pos] == '\n';
+}
+
+void parse_number(char *buff, unsigned int *number) {
+    *number = 0;
+    unsigned int indx = 0;
+    do {
+        *number = *number * 10 + buff[indx] - '0';
+    } while (indx <= MAX_BLE_MSG_LENGTH && buff[indx++] != 0x00 && isdigit(buff[indx]));
 }

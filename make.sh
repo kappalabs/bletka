@@ -12,7 +12,7 @@ avr-objcopy -j .text -j .data -O ihex main.elf main.hex
 
 avr-objdump -h -S main.elf > main.lst
 
-avrdude -c usbasp -p m328p -P /dev/ttyUSB0 -b 57600 -U flash:w:main.hex -u -v
+avrdude -c usbasp -p m328p -P /dev/ttyUSB0 -b 57600 -U flash:w:main.hex -u # -v
 
 # Cleanup
 rm *.elf *.o *.hex 2>/dev/null

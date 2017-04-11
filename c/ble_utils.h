@@ -35,19 +35,53 @@
 #define BLE_SLEEP_CMD       "AT+SLEEP"BLE_NL
 #define BLE_SLEEP_RESPONSE  "+SLEEP"BLE_NL""BLE_OK
 #define BLE_WAKEUP_CMD      "000000000000000000000000000000000000000000000000000000000000000000000000000000000"BLE_NL
-#define BLE_WAKEUP_RESPONSE "+WAKE"
+#define BLE_WAKEUP_RESPONSE "+WAKE"BLE_NL""BLE_OK
+#define BLE_CONN_RESPONSE   "OK+CONN"BLE_NL
+#define BLE_LOST_RESPONSE   "OK+LOST"BLE_NL
 
 #define STRLEN(S)           (sizeof(S) - 1)
 #define BLE_AWAIT_STRING(S) ble_wait_for_string((S), STRLEN(S))
 #define BLE_NL_TRANSMIT(S)  ble_ntransmit((S), MAX_BLE_MSG_LENGTH, false)
 
 #define MAX_BLE_MSG_LENGTH  20
+#define RECEIVE_BUFFER_LEN  64
 
+
+/**
+ * Copies 'length' bytes of the BLE receive buffer from current read position
+ * into given buffer. Read position is not altered.
+ *
+ * @param buffer Buffer which will contain the data.
+ * @param length Number of characters to be copied.
+ * @return The 'buffer' containing 'length' characters of BLE receive buffer from current read position.
+ */
+char *ble_nbuff(char *buffer, unsigned char length);
+
+/**
+ * Copies first 'MAX_BLE_MSG_LENGTH' characters of the BLE receive buffer from current read position
+ * into given buffer. Read position is not altered.
+ *
+ * @param buffer Buffer which will contain the data.
+ * @return The 'buffer' containing 'length' characters of BLE receive buffer from current read position.
+ */
+char *ble_buff(char *buffer);
+
+/**
+ * Resets the write and read positions and clears
+ * the receiving BLE buffer.
+ */
+void ble_receive_buffer_reset(void);
 
 /**
  * Initializes the Bluetooth module with name and password.
  */
-extern void ble_init(void);
+void ble_init(void);
+
+/**
+ * Save delay time after sending a message to prevent
+ * corruption of the next message.
+ */
+void ble_safe_delay(void);
 
 /**
  * Function for sending null-terminated(!) string messages
@@ -55,23 +89,30 @@ extern void ble_init(void);
  *
  * @param string String to be send.
  */
-extern void ble_send_string(char *string);
+void ble_send_string(char *string);
 
 /**
- * Wakes up the BLE module by sending long string.
- * Waits until the Android device is connected.
+ * Send string with >80 characters to wake the BLE module up.
+ * The module does not need to be sleeping to successfully run this method.
  */
-extern void ble_wake_up(void);
+void ble_wake_up(void);
 
 /**
- * TODO
+ * Wakes up the BLE module, which must be currently in sleep mode.
+ * Waits until external device is connected.
  */
-extern void ble_waiting_wake_up(void);
+void ble_waiting_wake_up(void);
 
 /**
  * Makes the BLE module go into sleep mode.
  */
-extern void ble_sleep(void);
+void ble_sleep(void);
+
+/**
+ * Makes the BLE module go into sleep mode, waits for device disconnection
+ * before doing it.
+ */
+void ble_waiting_sleep(void);
 
 
 #endif //BLETKA_BLE_UTILS_H

@@ -24,6 +24,7 @@ unsigned char get_recrom_shift(void) {
 
 /**
  * Reads and gets meta-information about RECMEM from RECRAM.
+ * Initializes the RECRAM if corrupted/not initialized.
  *
  * @param num_recs Number of current records in the RECMEM.
  * @param free_slot Position of the first available slot for a new record.
@@ -131,22 +132,16 @@ void get_record(unsigned int position, char *record) {
 }
 
 void put_record(unsigned int position, char *record) {
+    /* Find the address to write to */
     unsigned char offset = (unsigned char) (get_recrom_shift() + RECROM_HEADER_LENGTH);
 
+    /* Make the write to RECROM */
     recrom_write(RECORD_LENGTH * position + offset, RECORD_LENGTH, record);
-    speaker_beep();
-
-    print_eeprom();
 }
 
 bool save_record(char *record) {
     unsigned int num_recs, free_slot;
     recram_read(&num_recs, &free_slot);
-
-    //TODO: debug
-    char text[32];
-    sprintf(text, "NR=%u, FS=%u\r\n", num_recs, free_slot);
-    ble_send_string(text);
 
     /* Does the RECROM still have free space? */
     bool err = false;

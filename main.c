@@ -33,24 +33,39 @@ void send_all_records() {
     }
 }
 
+void save_current_time(void) {
+    _update_timestamp();
+    unsigned char evor = mint_flags & MF_B_MSK;
+    *(_timeram_buff + COMPRESSED_LENGTH) = evor;
+    save_record(_timeram_buff);
+    mint_flags &= ~MF_B_MSK;
+    speaker_ok();
+}
+
+/**
+ * Starts to serve the external device.
+ */
 void serve() {
     ble_send_string("Serve() START...");
     char text[32];
+    bool do_continue = true;
+    bool disconnected = false;
     char buffer[MAX_BLE_MSG_LENGTH + 1];
-    char do_continue = 1;
+    *(buffer + MAX_BLE_MSG_LENGTH) = 0x00;
     unsigned int num = 0;
-    unsigned int indx;
-    memset(buffer + MAX_BLE_MSG_LENGTH, 0x00, 1);
 
     while (do_continue) {
         /* Read the command from client */
-        memset(buffer, 0x00, MAX_BLE_MSG_LENGTH + 1);
-        ble_nreceive(buffer, MAX_BLE_MSG_LENGTH, false);
+        ble_receive_buffer_reset();
+        ble_allow_receive();
+        ble_nreceive(MAX_BLE_MSG_LENGTH, true);
+        ble_disallow_receive();
 
         /* Act based on the command ID */
-        switch ((unsigned char) buffer[0]) {
+        switch ((unsigned char) ble_buff(buffer)[0]) {
             case CMD_NUM_RECS:
-                init_recmanager();
+                sprintf(text, "Getting #recs...\r\n");
+                ble_send_string(text);
                 print_recram();
                 break;
             case CMD_LOAD_ALL:
@@ -59,10 +74,7 @@ void serve() {
                 send_all_records();
                 break;
             case CMD_LOAD_N:
-                num = 0; indx = 1;
-                do {
-                    num = num * 10 + buffer[indx] - '0';
-                } while (indx <= MAX_BLE_MSG_LENGTH && buffer[indx++] != 0x00 && isdigit(buffer[indx]));
+                parse_number(ble_buff(buffer) + 1, &num);
                 sprintf(text, "Loading n%d...\r\n", num);
                 ble_send_string(text);
                 send_record(num);
@@ -73,10 +85,7 @@ void serve() {
                 recmem_rotate();
                 break;
             case CMD_REMOVE_N:
-                num = 0; indx = 1;
-                do {
-                    num = num * 10 + buffer[indx] - '0';
-                } while (indx <= MAX_BLE_MSG_LENGTH && buffer[indx++] != 0x00 && isdigit(buffer[indx]));
+                parse_number(ble_buff(buffer) + 1, &num);
                 sprintf(text, "Removing n%d...\r\n", num);
                 ble_send_string(text);
                 destroy_record(num);
@@ -84,25 +93,25 @@ void serve() {
             case CMD_SAVE:
                 sprintf(text, "Saving...\r\n");
                 ble_send_string(text);
-                memcpy(_timeram_buff, buffer + 1, TIMERAM_LENGTH);
+                memcpy(_timeram_buff, ble_buff(buffer) + 1, TIMERAM_LENGTH);
                 compress_time();
                 /* Copy the EVOR */
-                _timeram_buff[COMPRESSED_LENGTH] = buffer[8];
+                _timeram_buff[COMPRESSED_LENGTH] = ble_buff(buffer)[8];
                 save_record(_timeram_buff);
                 break;
             case CMD_SET_TIME:
                 sprintf(text, "Setting time...\r\n");
                 ble_send_string(text);
-                sprintf(text, "%sREC\r\n", buffer + 1);
+                sprintf(text, "%sREC\r\n", ble_buff(buffer) + 1);
                 ble_send_string(text);
-                rtc_write(TIMERAM_OFFSET, TIMERAM_LENGTH, buffer + 1);
+                rtc_write(TIMERAM_OFFSET, TIMERAM_LENGTH, ble_buff(buffer) + 1);
                 break;
             case CMD_GET_TIME:
-//                sprintf(text, "Getting time...\r\n");
-//                ble_send_string(text);
+                sprintf(text, "Getting time...\r\n");
+                ble_send_string(text);
                 _update_timestamp();
                 ble_ntransmit(_timeram_buff, COMPRESSED_LENGTH, true);
-                delay_100ms();
+                ble_safe_delay();
                 break;
             case CMD_SET_LEDMODE:
                 //TODO
@@ -117,24 +126,44 @@ void serve() {
             case CMD_EXIT:
                 sprintf(text, "Exiting...\r\n");
                 ble_send_string(text);
-                do_continue = 0;
+                do_continue = false;
                 break;
             case CMD_RECMEM_PURGE:
                 sprintf(text, "Purging recmem...\r\n");
                 ble_send_string(text);
                 recmem_purge();
                 break;
+            case CMD_RECMEM_PRINT:
+                sprintf(text, "Printing recmem...\r\n");
+                ble_send_string(text);
+                print_recram();
+                print_eeprom();
+                break;
             default:
-                //TODO: toto neposílat, může být příliš dlouhé (>20 znaků)
+                /* External device disconnected itself? */
+                if (streq(ble_buff(buffer), BLE_LOST_RESPONSE)) {
+                    do_continue = false;
+                    disconnected = true;
+                    break;
+                }
+
+                /* Notify the device about the wrong command */
                 sprintf(text, "Unknown command!\r\n");
                 ble_send_string(text);
-                sprintf(text, "?[%s]\r\n", buffer);
-                ble_send_string(text);
+                sprintf(text, "?[%s]\r\n", ble_buff(buffer));
+                ble_ntransmit(text, MAX_BLE_MSG_LENGTH, true);
+                ble_safe_delay();
         }
-
-//        led_blink();
     }
     ble_send_string("Serve() STOP...");
+
+    /* Turn BLE to sleep mode based on external device's connection */
+    ble_allow_receive();
+    if (disconnected) {
+        ble_sleep();
+    } else {
+        ble_waiting_sleep();
+    }
 }
 
 /**
@@ -160,35 +189,18 @@ void init(void) {
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
 void loop(void) {
     for (;;) {
-
         /* Read the flags */
         if (is_activate_flagged()) {
-            //TODO: přehodnotit
+            /* Wake up the BLE module and wait for device connection */
             ble_waiting_wake_up();
+
             speaker_ok();
             ble_send_string("activate flag set");
             serve();
-            //TODO: přehodnotit
-            ble_sleep();
+
             mint_flags &= ~(1 << MF_A);
         } else if (is_button_flagged()) {
-            //TODO: odstranit
-            ble_waiting_wake_up();
-            ble_send_string("button flag set");
-
-            _update_timestamp();
-            unsigned char evor = mint_flags & MF_B_MSK;
-            memset(_timeram_buff + COMPRESSED_LENGTH, evor, 1);
-            save_record(_timeram_buff);
-            mint_flags &= ~MF_B_MSK;
-            speaker_ok();
-//            ble_ntransmit(timeram_buff, 7);
-//            delay_100ms();
-
-            //TODO: odstranit
-            ble_sleep();
-        } else {
-//            ble_send_string("no flag is set");
+            save_current_time();
         }
 
         /* Go back to power-safe mode */
@@ -203,7 +215,7 @@ void loop(void) {
  * @return Exit code, 0 on success.
  */
 int main(void) {
-    /* Makes all initializations */
+    /* Does all initializations */
     init();
 
     /* Start the services */

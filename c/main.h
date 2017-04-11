@@ -46,8 +46,11 @@
 #define CMD_OK              0x8B
 #define CMD_ERR             0x8C
 #define CMD_RECMEM_PURGE    0x8D
+#define CMD_RECMEM_PRINT    0x8E
 
 #define MIN(X, Y)           (((X) < (Y)) ? (X) : (Y))
+
+//#define DEBUG
 
 
 /* delays.S */
@@ -58,38 +61,82 @@ extern void delay_100ms(void);
 extern void delay_1s(void);
 extern void delay_500ms(void);
 
+
 /* inits.S */
 /**
  * Makes all initializations needed for this device.
  */
 extern void init_library(void);
 
+
 /* twi_peripherals.S */
 /* Real Time Clock functions */
+/**
+ * Reads and stores registers of real time clock module from given
+ * 'position' of given 'length' into given 'buffer'.
+ *
+ * @param position Position of the first register to read from.
+ * @param length Number of characters to be read.
+ * @param buffer Buffer where the data will be stored.
+ */
 extern void rtc_read(unsigned char position, unsigned char length, char *buffer);
+/**
+ * Writes given 'buffer' of given 'length' characters into RTC module
+ * beginning at register 'position'.
+ *
+ * @param position Address of the first register to write to.
+ * @param length Number of characters to be written.
+ * @param buffer Data to be written.
+ */
 extern void rtc_write(unsigned char position, unsigned char length, char *buffer);
+/**
+ * Reads 'length' characters into 'buffer' from given 'position'
+ * in RTC EEPROM memory.
+ *
+ * @param position Position to read from.
+ * @param length Number of characters to read.
+ * @param buffer Buffer for the received data.
+ */
 extern void recrom_read(unsigned int position, unsigned char length, char *buffer);
+/**
+ * Writes 'length' characters from given 'buffer' starting at 'position'
+ * into RTC module EEPROM.
+ *
+ * @param position Position where the write will start.
+ * @param length Number of characters which will be written.
+ * @param buffer Buffer containing the data to be written.
+ */
 extern void recrom_write(unsigned int position, unsigned char length, char *buffer);
 
+
 /* usart_peripherals.S */
-/**
- * Receives and stores bytes into given buffer until it receives 0x0A='\n'
- * or limit for number of characters 'length' is reached.
- *
- * @param buffer Buffer in which the result is placed.
- * @param length Maximum number of characters to be received.
- * @param strict If true, exactly 'length' characters will be read, '\n' character is therefore ignored.
- */
-extern void ble_nreceive(char *buffer, unsigned char length, bool strict);
 /**
  * Transmits bytes through BLE module until it receives 0x0A='\n'
  * or limit for number of characters 'length' is reached.
  *
  * @param buffer Buffer with data to be transmitted.
  * @param length Maximum number of characters to be transmitted.
- * @param strict If true, exactly 'length' characters will be transmitted, '\n' character is therefore ignored.
+ * @param strict If true, exactly 'length' characters will be transmitted, '\n' character is therefore ignored in that case.
  */
 extern void ble_ntransmit(char *buffer, unsigned char length, bool strict);
+/**
+ * Reads characters transmitted by BLE module and stores them into '_usart_rb'
+ * buffer until 'length' characters is read, or 'strict' is false
+ * and 0x0A='\n' character was received.
+ *
+ * @param length Maximum number of characters to be received.
+ * @param strict If true, exactly 'length' characters will be read, '\n' character is therefore ignored.
+ */
+extern void ble_nreceive(unsigned char length, bool strict);
+/**
+ * Allows interrupt-driven receive of characters from USART into '_usart_rb'.
+ */
+extern void ble_allow_receive(void);
+/**
+ * Disallows interrupt-driven receive of characters from USART into '_usart_rb'.
+ */
+extern void ble_disallow_receive(void);
+
 
 /* utils.S */
 /**
@@ -97,12 +144,35 @@ extern void ble_ntransmit(char *buffer, unsigned char length, bool strict);
  * power demands. Only button press can wake it back up.
  */
 extern void deep_sleep(void);
+/**
+ * Turns the LED on.
+ */
 extern void led_on(void);
+/**
+ * Turns the LED off.
+ */
 extern void led_off(void);
+/**
+ * Makes a beep sound.
+ */
 extern void speaker_beep(void);
-extern void compress_time(void);
+/**
+ * Checks if the Activate flag is set.
+ *
+ * @return Returns 1 if set, 0 if cleared.
+ */
 extern char is_activate_flagged(void);
+/**
+ * Checks if the Activate flag is set.
+ *
+ * @return Returns 1 if set, 0 if cleared.
+ */
 extern char is_button_flagged(void);
+/**
+ * Makes a compression of 7B in '_timeram_buff' retrieved from
+ * RTC module into 4B.
+ */
+extern void compress_time(void);
 
 
 /**

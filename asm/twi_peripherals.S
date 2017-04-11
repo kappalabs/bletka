@@ -15,12 +15,40 @@
 
 
 ;;
-; -------------------------------------------------------------------
-; char rtc_write(char *position, unsigned char length, char *buffer);
-; -------------------------------------------------------------------
+; ---------------------------------------------------
+; rtc_read(char position, char length, char *buffer);
+; ---------------------------------------------------
+;
+; Reads and stores registers of real time clock module from given
+; 'position' of given 'length' into given 'buffer'.
+;;
+.global rtc_read
+rtc_read:
+    ; Store the 'position' into the low byte of 'X' register
+    MOV   XL, r24
+
+    ; Store the number of bytes to read
+    MOV   LENGTH, r22
+
+    ; Point the 'Z' register into 'buffer'
+    MOV   ZH, r21
+    MOV   ZL, r20
+
+    ; Set the pointer in real time clock to 'position' register
+    RCALL rtc_set_pointer
+
+    ; Reads 'LENGTH' registers from real time module, stores them under 'Z' register
+    RCALL rtc_read_registers
+RET
+
+
+;;
+; ---------------------------------------------------------
+; void rtc_write(char position, char length, char *buffer);
+; ---------------------------------------------------------
 ;
 ; Writes given 'buffer' of given 'length' characters into RTC module
-; begining at register 'position'.
+; beginning at register 'position'.
 ;;
 .global rtc_write
 rtc_write:
@@ -61,37 +89,9 @@ RET
 
 
 ;;
-; ------------------------------------------------------------------
-; char rtc_read(char *position, unsigned char length, char *buffer);
-; ------------------------------------------------------------------
-;
-; Reads and stores registers of real time clock module from given
-; 'position' of given 'length' into given 'buffer'.
-;;
-.global rtc_read
-rtc_read:
-    ; Store the 'position' into the low byte of 'X' register
-    MOV   XL, r24
-
-    ; Store the number of bytes to read
-    MOV   LENGTH, r22
-
-    ; Point the 'Z' register into 'buffer'
-    MOV   ZH, r21
-    MOV   ZL, r20
-
-    ; Set the pointer in real time clock to 'position' register
-    RCALL rtc_set_pointer
-
-    ; Reads 'LENGTH' registers from real time module, stores them under 'Z' register
-    RCALL rtc_read_registers
-RET
-
-
-;;
-; --------------------------------------------
-; void rtc_set_pointer(char *position[XL]);
-; --------------------------------------------
+; ----------------------------------------
+; void rtc_set_pointer(char position[XL]);
+; ----------------------------------------
 ;
 ; Sets the pointer inside real time clock module to point
 ; on given register address/position.
@@ -113,9 +113,9 @@ rtc_set_pointer:
 RET
 
 ;;
-; ----------------------------------------------
-; void rtc_reset_pointer(char *position[XL]);
-; ----------------------------------------------
+; ------------------------------------------
+; void rtc_reset_pointer(char position[XL]);
+; ------------------------------------------
 ;
 ; Sets the pointer inside real time clock module to point
 ; on first register.
@@ -248,228 +248,223 @@ twi_stop_wait:
 RET
 
 
-//TODO: naformátovat, zkontrolovat
-
 ;;
-; char twi_read(void);
+; -----------------------------------
+; char twi_read(bool ack[Carry bit]);
+; -----------------------------------
 ;
-; Přečte jeden znak poslaný přes TWI. Odešle ACK
-; pokud je Carry bit nastaven, jinak odešle NACK.
+; Reads single character over TWI. Sends ACK if Carry bit
+; is set, otherwise sends NACK.
 ;;
 twi_read:
-    ; Povolení čtení zatím s NACK
+    ; Prepare reading with NACK
     LDI   TEMP, (1 << TWINT) | (1 << TWEN)
 
-    ; Na základě hodnoty Carry bitu rozhodni o hodnotě ACK
+    ; Decide based on Carry bit
     BRCC  twi_read_nack
 
-    ; Požádej o ACK
+    ; Change request for NACK to ACK
     ORI   TEMP, (1 << TWEA)
 
 twi_read_nack:
-    ; Nastav požadavek na TWI
+    ; Apply prepared request on TWI
     STS   TWCR, TEMP
 
-    ; Vyčkej na data
+    ; Wait for required data
     RCALL twi_wait
 
-    ; Ulož přijatá data
+    ; Store received data
     LDS   DATA, TWDR
 RET
 
 
 ;;
-; bool[Carry bit] twi_write(data [DATA]);
+; -------------------------------------------
+; bool[Carry bit] twi_write(char byte[DATA]);
+; -------------------------------------------
 ;
-; Odešle 1 byte v registru 'DATA' po TWI/I2C.
-; Do 'Carry' bitu nastaví 1 při úspěchu, 0 při neúspěchu.
+; Sends 1 byte from 'DATA' over TWI/I2C.
+; Sets 'Carry' bit to 1 on success, 0 on fail.
 ;;
 twi_write:
-    ; Pozastavení TWI
+    ; Disable TWI for a while
     LDI   TEMP, (0 << TWINT) | (1 << TWEN)
     STS   TWCR, TEMP
 
-    ; Vložení dat do odesílacího bufferu
+    ; Put the data into transmission buffer
     STS   TWDR, DATA
 
-    ; Nastavení požadavku na odeslání dat
+    ; Set request to send the data
     LDI   TEMP, (1 << TWINT) | (1 << TWEN)
     STS   TWCR, TEMP
 
-    ; Počkání na odeslání
+    ; Wait for the data to be send
     RCALL twi_wait
 
-    ; Zkontroluje úspěšnost odeslání
+    ; Check transmisison success
     LDS   TEMP, TWSR
     ANDI  TEMP, 0xF8
-    CPI   TEMP, 0x40  ; SLA+R has been transmitted; ACK has been received?
+    ; SLA+R has been transmitted; ACK has been received?
+    CPI   TEMP, 0x40
     BREQ  twi_write_ok
-    CPI   TEMP, 0x28  ; Data byte has been transmitted; ACK has been received?
+    ; Data byte has been transmitted; ACK has been received?
+    CPI   TEMP, 0x28
     BREQ  twi_write_ok
-    CPI   TEMP, 0x40  ; SLA+R has been transmitted; ACK has been received?
+    ; SLA+R has been transmitted; ACK has been received?
+    CPI   TEMP, 0x40
     BREQ  twi_write_ok
-    CPI   TEMP, 0x50  ; Data byte has been received; ACK has been returned?
+    ; Data byte has been received; ACK has been returned?
+    CPI   TEMP, 0x50
     BREQ  twi_write_ok
 
-    ; Oznámíme neúspěšné odeslání
+    ; Clear the carry bit to notify about failure
     CLC
     RET
+
 twi_write_ok:
+    ; Set the carry bit to notify about success
     SEC
 RET
 
 
-;########################;
-;#  I2C EEPROM UTILITY  #;
-;########################;
+
+;====================================================================;
+;=  I2C EEPROM UTILITY
+;= ---------------------------------------------------------------- =;
+;====================================================================;
 
 
 ;;
-; void recrom_read(unsigned int position, unsigned char length, char *buffer);
+; ----------------------------------------------------------
+; void recrom_read(int position, char length, char *buffer);
+; ----------------------------------------------------------
 ;
-; 
+; Reads 'length' characters into 'buffer' from given 'position'
+; in RTC EEPROM memory.
 ;;
 .global recrom_read
 recrom_read:
-    PUSH  r0
-    PUSH  r28
-    PUSH  r29
-
-    ; Dočasné uložení adresy
+    ; Store the 'position' value
     MOV   XH, r25
     MOV   XL, r24
 
-    ; Uchování délky čtené sekvence
+    ; Store the 'length' of the data to be read
     MOV   LENGTH, r22
 
-    ; Nastavení adresy bufferu
+    ; Store the 'buffer' address
     MOV   ZH, r21
     MOV   ZL, r20
 
-    ; { DUMMY nastavení adresy
-        ; Odešli START sekvenci
+    ; { DUMMY send address - sets address position to be read from
+        ; Send START condition
         RCALL twi_start
 
-        ; Odešli adresu EEPROM paměti
+        ; Send EEPROM address
         LDI   DATA, (EEPROM_ADDRESS << TWA0) | (TWI_WRITE)
         RCALL twi_write
 
-        ; Odešle MSB adresy v paměti
+        ; Send MSB of the memory address
         MOV   DATA, XH
         RCALL twi_write
 
-        ; Odešle LSB adresy v paměti
+        ; Send LSB of the memory address
         MOV   DATA, XL
         RCALL twi_write
     ; }
 
-    ; Odešli START sekvenci
+    ; Send START condition
     RCALL twi_start
 
-    ; Odešli adresu paměti + požadavek na čtení
+    ; Send memory I2C address with request to read
     LDI   DATA, (EEPROM_ADDRESS << TWA0) | (TWI_READ)
     RCALL twi_write
 
-; Čti jednotlivé byty zasílané pamětí
-memory_read_registers_receive:
-    ; Kontrola délky čteného řetězce
+    ; Read data send by RTC
+recrom_read_loop:
+    ; Check the length of received string
     DEC   LENGTH
-    BREQ  memory_read_registers_receive_clc
+    BREQ  recrom_read_clc
     SEC
-    RJMP  memory_read_registers_receive_read
-memory_read_registers_receive_clc:
+    RJMP  recrom_read_receive
+recrom_read_clc:
     CLC
-
-memory_read_registers_receive_read:
-    ; Přečtení jednoho bytu a odeslání (N)ACK dle předchozí podmínky
+recrom_read_receive:
+    ; Read one byte and send ACK or NACK based on previous condition
     RCALL twi_read
 
-    ; Ulož přečtená data
+    ; Store received data
     ST    Z+, DATA
 
-    ; Zkontroluje úspěšnost odeslání
+    ; Check if receive was successfull
     LDS   TEMP, TWSR
     ANDI  TEMP, 0xF8
-
     ; Data byte has been received; ACK has been returned
     CPI   TEMP, 0x50
-    BREQ  memory_read_registers_receive
+    BREQ  recrom_read_loop
     ; Data byte has been received; NOT ACK has been returned
     CPI   TEMP, 0x58
-    BRNE  memory_read_registers_receive
+    BRNE  recrom_read_loop
 
-memory_read_registers_receive_end:
-    ; Ukončení komunikace
+recrom_read_receive_end:
+    ; Stop the comunication
     RCALL twi_stop
-
-    POP   r29
-    POP   r28
-    CLR   r1
-    POP   r0
 RET
 
 
 ;;
-; bool[Carry] recrom_write(unsigned int position, unsigned char length, char *buffer);
+; -----------------------------------------------------------
+; void recrom_write(int position, char length, char *buffer);
+; -----------------------------------------------------------
 ;
-; Zapíše do paměti na danou adresu daný byte.
+; Writes 'length' characters from given 'buffer' starting at 'position'
+; into RTC module EEPROM.
 ;;
 .global recrom_write
 recrom_write:
-    PUSH  r0
-    PUSH  r28
-    PUSH  r29
-
-    ; Dočasné uložení adresy EEPROM paměti
+    ; Store the address in EEPROM to write to
     MOV   XH, r25
     MOV   XL, r24
 
-    ; Uchování délky sekvence k zápisu
+    ; Store the length of sequence to be transmitted
     MOV   LENGTH, r22
 
-    ; Uložení adresy pole dat k zápisu
+    ; Store the pointer to 'buffer' containing data
     MOV   ZH, r21
     MOV   ZL, r20
 
-    ; Odešli START sekvenci
+    ; Send START condition
     RCALL twi_start
 
-    ; Odešli adresu EEPROM paměti
+    ; Send EEPROM I2C address with request to write
     LDI   DATA, (EEPROM_ADDRESS << TWA0) | (TWI_WRITE)
     RCALL twi_write
 
-    ; Odešle MSB adresy v paměti
+    ; Send MSB of the memory address
     MOV   DATA, XH
     RCALL twi_write
 
-    ; Odešle LSB adresy v paměti
+    ; Send LSB of the memory address
     MOV   DATA, XL
     RCALL twi_write
 
-    ; Kontrola nenulovosti délky řetězce k odeslání
+    ; Check if there is someting to be send
     CPI   LENGTH, 0x00
     BREQ  memory_write_loop_end
 
-; Odesílej jednotlivé byty
+    ; Send the whole sequence byte by byte
 memory_write_loop:
-    ; Odešli další byte z řetězce
+    ; Send next byte from the buffer
     LD    DATA, Z+
     RCALL twi_write
 
-    ; Kontrola délky odeslaného řetězce
+    ; Check length of transmitted string
     DEC   LENGTH
     BRNE  memory_write_loop
 
 memory_write_loop_end:
-
-    ; Ukončení komunikace
+    ; Stop the comunication
     RCALL twi_stop
 
     ; Delay according the documentation when on >=2.5-volt
     RCALL delay_10ms
-
-    POP   r29
-    POP   r28
-    CLR   r1
-    POP   r0
 RET

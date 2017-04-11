@@ -17,13 +17,19 @@
 
 
 /**
- * Makes the LED blink at 1Hz once.
+ * Makes the LED blink once at 1Hz once.
  */
-extern void led_blink(void);
+void led_blink(void);
 
-extern void speaker_err(void);
+/**
+ * Makes error sound.
+ */
+void speaker_err(void);
 
-extern void speaker_ok(void);
+/**
+ * Makes OK sound.
+ */
+void speaker_ok(void);
 
 /**
  * Compares two strings that end with '\n' character. Their length
@@ -33,7 +39,15 @@ extern void speaker_ok(void);
  * @param str2 Second string to be compared.
  * @return If the strings are equal including the last ('\n') character.
  */
-extern bool streq(char *str1, char *str2);
+bool streq(char *str1, char *str2);
+
+/**
+ * Parses a decimal number from given string.
+ *
+ * @param buff String containing the decimal number in human-readable form.
+ * @param number Will contain decoded number.
+ */
+void parse_number(char *buff, unsigned int *number);
 
 
 #endif //BLETKA_UTILS_H
