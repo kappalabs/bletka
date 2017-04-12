@@ -111,6 +111,21 @@ void init_recmanager(void) {
     recram_read(&_x, &_x);
 }
 
+void recrom_write(unsigned int position, unsigned int length, char *buffer) {
+    unsigned char part_len;
+    while (length > 0) {
+        /* Calculate the length in current page */
+        part_len = (unsigned char) (RECROM_PAGE_LENGTH - (position & RECROM_PAGE_MASK));
+        if (length < RECROM_PAGE_LENGTH) {
+            part_len = MIN(part_len, (unsigned char) length);
+        }
+        recrom_page_write(position, part_len, buffer);
+        position += part_len;
+        buffer += part_len;
+        length -= part_len;
+    }
+}
+
 void print_eeprom(void) {
     char eeprom_buff[MAX_BLE_MSG_LENGTH];
     int i;
@@ -211,7 +226,7 @@ void _update_timestamp(void) {
     char rtc_buff[TIMERAM_LENGTH];
     memset(rtc_buff, 0x00, TIMERAM_LENGTH);
     rtc_read(TIMERAM_OFFSET, TIMERAM_LENGTH, rtc_buff);
-    memcpy(_timeram_buff, rtc_buff, TIMERAM_LENGTH);
+    memcpy((void *) _timeram_buff, rtc_buff, TIMERAM_LENGTH);
     compress_time();
 }
 

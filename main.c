@@ -37,7 +37,7 @@ void save_current_time(void) {
     _update_timestamp();
     unsigned char evor = mint_flags & MF_B_MSK;
     *(_timeram_buff + COMPRESSED_LENGTH) = evor;
-    save_record(_timeram_buff);
+    save_record((char *) _timeram_buff);
     mint_flags &= ~MF_B_MSK;
     speaker_ok();
 }
@@ -93,11 +93,11 @@ void serve() {
             case CMD_SAVE:
                 sprintf(text, "Saving...\r\n");
                 ble_send_string(text);
-                memcpy(_timeram_buff, ble_buff(buffer) + 1, TIMERAM_LENGTH);
+                memcpy((void *) _timeram_buff, ble_buff(buffer) + 1, TIMERAM_LENGTH);
                 compress_time();
                 /* Copy the EVOR */
                 _timeram_buff[COMPRESSED_LENGTH] = ble_buff(buffer)[8];
-                save_record(_timeram_buff);
+                save_record((char *) _timeram_buff);
                 break;
             case CMD_SET_TIME:
                 sprintf(text, "Setting time...\r\n");
@@ -110,7 +110,7 @@ void serve() {
                 sprintf(text, "Getting time...\r\n");
                 ble_send_string(text);
                 _update_timestamp();
-                ble_ntransmit(_timeram_buff, COMPRESSED_LENGTH, true);
+                ble_ntransmit((char *) _timeram_buff, COMPRESSED_LENGTH, true);
                 ble_safe_delay();
                 break;
             case CMD_SET_LEDMODE:

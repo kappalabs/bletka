@@ -100,14 +100,15 @@ extern void rtc_write(unsigned char position, unsigned char length, char *buffer
 extern void recrom_read(unsigned int position, unsigned char length, char *buffer);
 /**
  * Writes 'length' characters from given 'buffer' starting at 'position'
- * into RTC module EEPROM.
+ * into RTC module EEPROM page. Page is 32B long, after reaching the end
+ * of it it rotates back to the first byte in the page, therefore using
+ * 'length' > 32 makes no sense.
  *
  * @param position Position where the write will start.
  * @param length Number of characters which will be written.
  * @param buffer Buffer containing the data to be written.
  */
-extern void recrom_write(unsigned int position, unsigned char length, char *buffer);
-
+extern void recrom_page_write(unsigned int position, unsigned char length, char *buffer);
 
 /* usart_peripherals.S */
 /**

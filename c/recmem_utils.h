@@ -47,6 +47,8 @@
 #define RECROM_HEADER_OFFSET        0x00
 #define RECROM_HEADER_LENGTH        1
 #define RECROM_HEADER_SHIFT_MASK    0x03
+#define RECROM_PAGE_LENGTH          32
+#define RECROM_PAGE_MASK            0x1F
 
 
 /**
@@ -57,6 +59,15 @@ volatile char _timeram_buff[TIMERAM_LENGTH];
 
 bool recram_update(unsigned int new_num_recs, unsigned int new_free_slot);
 void recram_read(unsigned int *num_recs, unsigned int *free_slot);
+
+/**
+ * Writes given data to RECROM memory. Can handle data longer than page size.
+ *
+ * @param position Position in RECROM to start writing to.
+ * @param length Number of characters to be written.
+ * @param buffer Buffer containing data to be written.
+ */
+void recrom_write(unsigned int position, unsigned int length, char *buffer);
 
 void init_recmanager(void);
 

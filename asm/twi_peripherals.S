@@ -412,15 +412,17 @@ RET
 
 
 ;;
-; -----------------------------------------------------------
-; void recrom_write(int position, char length, char *buffer);
-; -----------------------------------------------------------
+; ----------------------------------------------------------------
+; void recrom_page_write(int position, char length, char *buffer);
+; ----------------------------------------------------------------
 ;
 ; Writes 'length' characters from given 'buffer' starting at 'position'
-; into RTC module EEPROM.
+; into RTC module EEPROM page. Page is 32B long, after reaching the end
+; of it it rotates back to the first byte in the page, therefore using
+; 'length' > 32 makes no sense.
 ;;
-.global recrom_write
-recrom_write:
+.global recrom_page_write
+recrom_page_write:
     ; Store the address in EEPROM to write to
     MOV   XH, r25
     MOV   XL, r24
