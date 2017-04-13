@@ -18,7 +18,7 @@ void send_record(unsigned int num) {
     char record_buff[RECORD_LENGTH];
     get_record(num, record_buff);
     ble_ntransmit(record_buff, RECORD_LENGTH, true);
-    delay_100ms();
+    ble_safe_delay();
 }
 
 void send_all_records() {
@@ -26,10 +26,13 @@ void send_all_records() {
     recram_read(&num_recs, &free_slot);
     char record_buff[RECORD_LENGTH];
     unsigned int i;
-    for (i = 0; i < num_recs; ++i) {
+
+    /* Function get_record() returns all (including invalid) records,
+     * therefore 'free_slot' is used instead of 'num_recs' */
+    for (i = 0; i < free_slot; ++i) {
         get_record(i, record_buff);
         ble_ntransmit(record_buff, RECORD_LENGTH, true);
-        delay_100ms();
+        ble_safe_delay();
     }
 }
 
@@ -37,9 +40,11 @@ void save_current_time(void) {
     _update_timestamp();
     unsigned char evor = mint_flags & MF_B_MSK;
     *(_timeram_buff + COMPRESSED_LENGTH) = evor;
-    save_record((char *) _timeram_buff);
-    mint_flags &= ~MF_B_MSK;
-    speaker_ok();
+    if (!save_record((char *) _timeram_buff)) {
+        speaker_err();
+    } else {
+        speaker_ok();
+    }
 }
 
 /**
@@ -97,7 +102,11 @@ void serve() {
                 compress_time();
                 /* Copy the EVOR */
                 _timeram_buff[COMPRESSED_LENGTH] = ble_buff(buffer)[8];
-                save_record((char *) _timeram_buff);
+                if (!save_record((char *) _timeram_buff)) {
+                    speaker_err();
+                } else {
+                    speaker_ok();
+                }
                 break;
             case CMD_SET_TIME:
                 sprintf(text, "Setting time...\r\n");
@@ -137,7 +146,7 @@ void serve() {
                 sprintf(text, "Printing recmem...\r\n");
                 ble_send_string(text);
                 print_recram();
-                print_eeprom();
+                print_recrom();
                 break;
             default:
                 /* External device disconnected itself? */
@@ -154,6 +163,8 @@ void serve() {
                 ble_ntransmit(text, MAX_BLE_MSG_LENGTH, true);
                 ble_safe_delay();
         }
+
+        speaker_beep();
     }
     ble_send_string("Serve() STOP...");
 
@@ -173,13 +184,14 @@ void init(void) {
     /* Library initializations */
     init_library();
 
+    /* Consistency checks of RECMEM */
+    init_recmanager();
+
     /* Initialization of the bluetooth module */
     ble_init();
 
     /* Initialization of RECMEM (records memory) */
 //    recmem_purge();
-
-    ble_send_string("RESET\r\n");
 
     ble_sleep();
     speaker_beep();
@@ -198,9 +210,10 @@ void loop(void) {
             ble_send_string("activate flag set");
             serve();
 
-            mint_flags &= ~(1 << MF_A);
+            mint_flags &= 0x00;
         } else if (is_button_flagged()) {
             save_current_time();
+            mint_flags &= ~MF_B_MSK;
         }
 
         /* Go back to power-safe mode */

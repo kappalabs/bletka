@@ -467,6 +467,6 @@ memory_write_loop_end:
     ; Stop the comunication
     RCALL twi_stop
 
-    ; Delay according the documentation when on >=2.5-volt
-    RCALL delay_10ms
+    ; Delay according the documentation when on >=1.8-volt
+    RCALL delay_20ms
 RET

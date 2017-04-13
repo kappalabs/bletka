@@ -22,13 +22,6 @@ unsigned char get_recrom_shift(void) {
     return (unsigned char) (get_recrom_header() & RECROM_HEADER_SHIFT_MASK);
 }
 
-/**
- * Reads and gets meta-information about RECMEM from RECRAM.
- * Initializes the RECRAM if corrupted/not initialized.
- *
- * @param num_recs Number of current records in the RECMEM.
- * @param free_slot Position of the first available slot for a new record.
- */
 void recram_read(unsigned int *num_recs, unsigned int *free_slot) {
     /* Reads the RECRAM */
     char recram_buff[RECRAM_LENGTH];
@@ -45,38 +38,34 @@ void recram_read(unsigned int *num_recs, unsigned int *free_slot) {
                 ((unsigned char) recram_buff[FREESLOT_LOFFSET] << 8)
                 | (unsigned char) recram_buff[FREESLOT_LOFFSET + 1]);
     } else {
-        /* Write the magic */
-        memcpy(recram_buff + MAGIC_LOFFSET, RECRAM_MAGIC, MAGIC_LENGTH);
-        rtc_write(MAGIC_OFFSET, MAGIC_LENGTH, recram_buff);
-
         /* Go throught the RECROM and initialize the metadata */
-        char recrom_buff[1];
-        unsigned char offset = (unsigned char) (get_recrom_shift() + RECROM_HEADER_LENGTH + RECROM_DEL_OFFSET);
+        char recrom_buff[2];
+        unsigned char offset = (unsigned char) (get_recrom_shift() + RECROM_HEADER_LENGTH + RECORD_ROTATE_DEL_OFFSET);
         unsigned int i = offset;
+        unsigned int iters = 0;
         *num_recs = 0;
-        *free_slot = 0x00;
+        *free_slot = 0;
         while (i < RECROM_BYTES) {
-            recrom_read(i, 1, recrom_buff);
-            if (recram_buff[0] != RECORD_DEL_CHAR) {
-                //TODO: případně závorky
+            recrom_read(i, 2, recrom_buff);
+            if (recrom_buff[0] != RECORD_DEL_CHAR && recrom_buff[1] != RECORD_DEL_CHAR) {
                 ++*num_recs;
-                *free_slot = i + RECORD_LENGTH - RECROM_DEL_OFFSET;
+                *free_slot = iters + 1;
             }
             i += RECORD_LENGTH;
+            ++iters;
         }
 
         /* Write the new values into the RECRAM */
-        recram_update(*num_recs, *free_slot);
+        if (recram_update(*num_recs, *free_slot)) {
+            /* Write the magic */
+            memcpy(recram_buff + MAGIC_LOFFSET, RECRAM_MAGIC, MAGIC_LENGTH);
+            rtc_write(MAGIC_OFFSET, MAGIC_LENGTH, recram_buff);
+        }
+
+        speaker_err();
     }
 }
 
-/**
- * Sets metadata in RECRAM to given values.
- *
- * @param new_num_recs New number of records.
- * @param new_free_slot New position of the first free slot.
- * @return If the update was successful.
- */
 bool recram_update(unsigned int new_num_recs, unsigned int new_free_slot) {
     char recram_buff[RECRAM_LENGTH];
     memset(recram_buff, 0x00, RECRAM_LENGTH);
@@ -84,8 +73,6 @@ bool recram_update(unsigned int new_num_recs, unsigned int new_free_slot) {
 
     /* Check the free/available space for records */
     if (new_num_recs > RECROM_MAX_RECS) {
-        //TODO: report nutnost rotace
-        speaker_err();
         return false;
     }
 
@@ -126,7 +113,7 @@ void recrom_write(unsigned int position, unsigned int length, char *buffer) {
     }
 }
 
-void print_eeprom(void) {
+void print_recrom(void) {
     char eeprom_buff[MAX_BLE_MSG_LENGTH];
     int i;
     unsigned int position = 0x00;
@@ -140,14 +127,30 @@ void print_eeprom(void) {
     }
 }
 
+void print_recram(void) {
+    /* Transmit the whole RECRAM content */
+    char recram_buff[RECRAM_LENGTH];
+    memset(recram_buff, 0x00, RECRAM_LENGTH);
+    rtc_read(RECRAM_OFFSET, RECRAM_LENGTH, recram_buff);
+    ble_ntransmit(recram_buff, RECRAM_LENGTH, true);
+    ble_safe_delay();
+
+    /* Transmit the decoded NR and FS values */
+    char text[32];
+    unsigned int num_recs, free_slot;
+    recram_read(&num_recs, &free_slot);
+    sprintf(text, "NR=%u, FS=%u\r\n", num_recs, free_slot);
+    ble_send_string(text);
+}
+
 void get_record(unsigned int position, char *record) {
     unsigned char offset = (unsigned char) (get_recrom_shift() + RECROM_HEADER_LENGTH);
 
+    /* Read the record from RECROM */
     recrom_read(position * RECORD_LENGTH + offset, RECORD_LENGTH, record);
 }
 
 void put_record(unsigned int position, char *record) {
-    /* Find the address to write to */
     unsigned char offset = (unsigned char) (get_recrom_shift() + RECROM_HEADER_LENGTH);
 
     /* Make the write to RECROM */
@@ -159,67 +162,37 @@ bool save_record(char *record) {
     recram_read(&num_recs, &free_slot);
 
     /* Does the RECROM still have free space? */
-    bool err = false;
     if (free_slot < RECROM_MAX_RECS) {
         /* Write the record into memory */
         put_record(free_slot, record);
 
         /* Update metadata in RECRAM */
-        if (!recram_update(++num_recs, ++free_slot)) {
-            err = true;
-        }
-    } else {
-        err = true;
+        return recram_update(++num_recs, ++free_slot);
     }
-
-    //TODO: přesunout
-    if (err) {
-        //TODO: error, nedostatek místa!
-        speaker_err();
-    }
-
-    return !err;
+    return false;
 }
 
 void destroy_record(unsigned int position) {
-    unsigned char offset = (unsigned char) (get_recrom_shift() + RECROM_HEADER_LENGTH + RECORD_DEL_OFFSET);
-    char record[RECORD_DEL_LEN];
-    memset(record, RECORD_DEL_CHAR, RECORD_DEL_LEN);
+    unsigned char offset = (unsigned char) (get_recrom_shift() + RECROM_HEADER_LENGTH);
+    char recrom_buff[2];
+    memset(recrom_buff, RECORD_DEL_CHAR, 2);
 
-    //TODO: potřeba?
-    /* Check RECMEM consistency */
-    init_recmanager();
+    /* Don't destroy the record if it's already invalid */
+    recrom_read(RECORD_LENGTH * position + offset + RECORD_ROTATE_DEL_OFFSET, 2, recrom_buff);
+    if (recrom_buff[0] == RECORD_DEL_CHAR || recrom_buff[1] == RECORD_DEL_CHAR) {
+        return;
+    }
 
-    //TODO: není potřeba mazat na pozici, která bude třetí při další rotaci?
-    /* Delete the record from RECROM */
-    recrom_write(RECORD_LENGTH * position + offset, RECORD_DEL_LEN, record);
-    speaker_beep();
+    /* Destroy the record by writing DEL character in proper byte */
+    recrom_buff[0] = RECORD_DEL_CHAR;
+    recrom_write(RECORD_LENGTH * position + offset + RECORD_DEL_OFFSET, RECORD_DEL_LEN, recrom_buff);
 
-    /* Increase the index of the first available position */
-    char recram_buff[RECRAM_LENGTH];
-    memset(recram_buff, 0x00, RECRAM_LENGTH);
-    rtc_read(RECRAM_OFFSET, RECRAM_LENGTH, recram_buff);
+    /* Read the current metadata */
+    unsigned int num_recs, free_slot;
+    recram_read(&num_recs, &free_slot);
 
-    print_eeprom();
-}
-
-void print_recram(void) {
-    char recram_buff[RECRAM_LENGTH];
-    memset(recram_buff, 0x00, RECRAM_LENGTH);
-    rtc_read(RECRAM_OFFSET, RECRAM_LENGTH, recram_buff);
-    unsigned int num_recs = (unsigned int) (
-            ((unsigned char) recram_buff[NUMREC_LOFFSET] << 8)
-            | (unsigned char) recram_buff[NUMREC_LOFFSET + 1]);
-    unsigned int free_slot = (unsigned int) (
-            ((unsigned char) recram_buff[FREESLOT_LOFFSET] << 8)
-            | (unsigned char) recram_buff[FREESLOT_LOFFSET + 1]);
-
-    ble_ntransmit(recram_buff, RECRAM_LENGTH, true);
-    delay_100ms();
-    delay_100ms();
-    char text[32];
-    sprintf(text, "NR=%u, FS=%u\r\n", num_recs, free_slot);
-    ble_send_string(text);
+    /* Decrease the metadata about number of records in RECMEM */
+    recram_update(num_recs - 1, free_slot);
 }
 
 void _update_timestamp(void) {
@@ -230,12 +203,37 @@ void _update_timestamp(void) {
     compress_time();
 }
 
+/**
+ * Resets the RECRAM to default settings.
+ * Writes magic and initializes the variables to zero.
+ */
 void recram_reset(void) {
     char recram_buff[RECRAM_LENGTH];
     memcpy(recram_buff + MAGIC_LOFFSET, RECRAM_MAGIC, MAGIC_LENGTH);
     memset(recram_buff + NUMREC_LOFFSET, 0x00, NUMREC_LENGTH);
     memset(recram_buff + FREESLOT_LOFFSET, 0x00, FREESLOT_LENGTH);
     rtc_write(RECRAM_OFFSET, RECRAM_LENGTH, recram_buff);
+}
+
+/**
+ * Destroy every record by writing DEL character into proper bytes.
+ *
+ * @param shift Header shift which should be used.
+ */
+void destroy_all_records(unsigned char shift) {
+    char recrom_buff[2];
+    memset(recrom_buff, RECORD_DEL_CHAR, 2);
+    unsigned int i = shift + RECROM_HEADER_LENGTH + RECORD_ROTATE_DEL_OFFSET;
+    while (i < RECROM_BYTES) {
+        /* Don't destroy the record if it's already invalid */
+        recrom_read(i, 2, recrom_buff);
+        if (recrom_buff[0] != RECORD_DEL_CHAR && recrom_buff[1] != RECORD_DEL_CHAR) {
+            recrom_buff[0] = RECORD_DEL_CHAR;
+            recrom_write(i, RECORD_DEL_LEN, recrom_buff);
+        }
+
+        i += RECORD_LENGTH;
+    }
 }
 
 void recmem_rotate(void) {
@@ -246,67 +244,46 @@ void recmem_rotate(void) {
     unsigned char offset = (unsigned char) (header & RECROM_HEADER_SHIFT_MASK);
 
     /* Next RECMEM write will start with new offset */
-    offset = (unsigned char) ((offset + 1) & RECROM_HEADER_SHIFT_MASK);
+    offset = (unsigned char) (((offset + 1) & RECROM_HEADER_SHIFT_MASK) % RECORD_LENGTH);
     recrom_header_buff[0] = offset;
     recrom_write(RECROM_HEADER_OFFSET, RECROM_HEADER_LENGTH, recrom_header_buff);
-//    delay_10ms();
 
-    /* Set 3rd byte of every record to zero */
-    char recrom_buff_[RECORD_DEL_LEN];
-    memset(recrom_buff_, RECORD_DEL_CHAR, RECORD_DEL_LEN);
-    unsigned int i = offset + RECROM_HEADER_LENGTH + RECROM_DEL_OFFSET;
-    while (i < RECROM_BYTES) {
-        recrom_write(i, RECORD_DEL_LEN, recrom_buff_);
-//        delay_10ms();
-        i += RECORD_LENGTH;
-    }
+    /* Destroy every record in RECROM */
+    destroy_all_records(offset);
 
-    //TODO: pouze debug
-    print_recram();
-    print_eeprom();
+    /* Reset the pointers position to default */
+    recram_reset();
 }
 
 void recmem_reset(void) {
-    /* Set 3rd byte of every record to zero */
-    char recrom_buff_[1];
-    recrom_buff_[0] = 0x00;
-    unsigned int i = RECROM_HEADER_LENGTH + RECROM_DEL_OFFSET;
-    while (i < RECROM_BYTES) {
-        recrom_write(i, 1, recrom_buff_);
-//        delay_10ms();
-        i += RECORD_LENGTH;
-    }
-
     /* Next RECMEM write will start with default shift 0 */
     char recrom_buff[RECROM_HEADER_LENGTH];
     recrom_buff[0] = 0x00;
     recrom_write(RECROM_HEADER_OFFSET, RECROM_HEADER_LENGTH, recrom_buff);
 
+    /* Destroy every record in RECROM */
+    destroy_all_records(0);
+
     /* Reset the pointers position to default */
     recram_reset();
-
-    //TODO: pouze debug
-    print_recram();
-    print_eeprom();
 }
-
-#define DELETE_BUFF_LEN 32U // The RECROM is capable of max 32-byte page writes
 
 void recmem_purge(void) {
     /* Set the whole RECROM to zeros */
-    char recrom_buff[DELETE_BUFF_LEN];
-    memset(recrom_buff, 0x00, DELETE_BUFF_LEN);
+    char recrom_buff[RECROM_PAGE_LENGTH];
+    memset(recrom_buff, RECORD_DEL_CHAR, RECROM_PAGE_LENGTH);
     unsigned int i = 0;
     while (i < RECROM_BYTES) {
-        recrom_write(i, DELETE_BUFF_LEN, recrom_buff);
-//        delay_10ms();
-        i += DELETE_BUFF_LEN;
+        recrom_write(i, RECROM_PAGE_LENGTH, recrom_buff);
+        i += RECROM_PAGE_LENGTH;
     }
 
     /* Reset the pointers position to default */
     recram_reset();
+}
 
-    //TODO: pouze debug
-    print_recram();
-    print_eeprom();
+void recram_purge(void) {
+    char recram_buff[RECRAM_LENGTH];
+    memset(recram_buff, 0xFF, RECRAM_LENGTH);
+    rtc_write(RECRAM_OFFSET, RECRAM_LENGTH, recram_buff);
 }
