@@ -63,7 +63,7 @@ void serve() {
         /* Read the command from client */
         ble_receive_buffer_reset();
         ble_allow_receive();
-        ble_nreceive(MAX_BLE_MSG_LENGTH, true);
+        ble_nreceive(MAX_BLE_MSG_LENGTH, false);
         ble_disallow_receive();
 
         /* Act based on the command ID */
@@ -79,7 +79,9 @@ void serve() {
                 send_all_records();
                 break;
             case CMD_LOAD_N:
-                parse_number(ble_buff(buffer) + 1, &num);
+                if (!parse_number(ble_buff(buffer) + 1, &num)) {
+                    break;
+                }
                 sprintf(text, "Loading n%d...\r\n", num);
                 ble_send_string(text);
                 send_record(num);
@@ -90,7 +92,9 @@ void serve() {
                 recmem_rotate();
                 break;
             case CMD_REMOVE_N:
-                parse_number(ble_buff(buffer) + 1, &num);
+                if (!parse_number(ble_buff(buffer) + 1, &num)) {
+                    break;
+                }
                 sprintf(text, "Removing n%d...\r\n", num);
                 ble_send_string(text);
                 destroy_record(num);

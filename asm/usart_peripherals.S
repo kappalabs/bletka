@@ -195,7 +195,7 @@ ble_nreceive_loop:
 
     ; Check strict mode
     CPI   CHAR, 0x00
-    BREQ  ble_nreceive_loop_sleep
+    BRNE  ble_nreceive_loop_sleep
 
     ; Check if the '\n' character was read
     LDI   ZH, hi8(_usart_rb)

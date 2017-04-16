@@ -199,19 +199,19 @@ compress_time:
     ; 1. byte (seconds) [6 bits]
     LD    TEMP, Z+
     ANDI  TEMP, 0x7F
-    RCALL weird_to_binary
+    RCALL bcd_to_binary
     MOV   r0, TEMP
 
     ; 2. byte (minutes) [6 bits]
     LD    TEMP, Z+
     ANDI  TEMP, 0x7F
-    RCALL weird_to_binary
+    RCALL bcd_to_binary
     MOV   r1, TEMP
 
     ; 3. byte (hours) [5 bits]
     LD    TEMP, Z+
     ANDI  TEMP, 0x3F
-    RCALL weird_to_binary
+    RCALL bcd_to_binary
     MOV   r2, TEMP
 
     ; 4. byte (day in week) - we do not care about this one
@@ -220,19 +220,19 @@ compress_time:
     ; 5. byte (day) [5 bits]
     LD    TEMP, Z+
     ANDI  TEMP, 0x3F
-    RCALL weird_to_binary
+    RCALL bcd_to_binary
     MOV   r3, TEMP
 
     ; 6. byte (month) [4 bits]
     LD    TEMP, Z+
     ANDI  TEMP, 0x1F
-    RCALL weird_to_binary
+    RCALL bcd_to_binary
     MOV   r4, TEMP
 
     ; 7. byte (year) [6 bits]
     LD    TEMP, Z+
     ANDI  TEMP, 0xFF
-    RCALL weird_to_binary
+    RCALL bcd_to_binary
     ; Align and delete the MSbit, we only want 6 less significant ones
     LSL   TEMP
     LSL   TEMP
@@ -317,19 +317,17 @@ RET
 
 
 ;;
-; --------------------------------------------
-; char[TEMP] weird_to_binary(char byte[TEMP]);
-; --------------------------------------------
+; ------------------------------------------
+; char[TEMP] bcd_to_binary(char byte[TEMP]);
+; ------------------------------------------
 ;
-; Makes conversion of given byte from pseudo-binary version
-; from RTC module into standard form.
+; Makes conversion of given byte from BCD (Binary Coded Decimal)
+; version from RTC module into standard form.
 ;
-; RTC pseudo-binary form:
-;   each nibble encodes binary one decimal numeral
-;   -> decimal number has pseudo-binary form equal to
-;      its decimal form (but not the other way around)
+; RTC BCD form:
+;   - each nibble encodes binary one decimal numeral
 ;;
-weird_to_binary:
+bcd_to_binary:
     PUSH  r16
     PUSH  r17
 

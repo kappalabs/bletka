@@ -46,8 +46,9 @@ bool streq(char *str1, char *str2);
  *
  * @param buff String containing the decimal number in human-readable form.
  * @param number Will contain decoded number.
+ * @return If the operation was successful.
  */
-void parse_number(char *buff, unsigned int *number);
+bool parse_number(char *buff, unsigned int *number);
 
 
 #endif //BLETKA_UTILS_H
