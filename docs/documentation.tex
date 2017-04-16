@@ -1,0 +1,1191 @@
+\documentclass[22pt,oneside,a4paper]{article}
+% Nastaví kódování na UTF8
+\usepackage[utf8]{inputenc}
+%\usepackage[czech]{babel}
+
+%\usepackage{fancyhdr}
+%\pagestyle{fancy}
+
+%\lhead{\large Programování MCU}
+%\chead{\large Specifikace projektu}
+%\rhead{\large Vojtěch Vašek}
+
+\usepackage{paralist}
+\usepackage{hyperref}
+\usepackage{amstext}
+\usepackage{amsmath}
+
+
+% Barevné tabulky
+\usepackage[table]{xcolor}
+\usepackage{tabularx}
+\definecolor{LightGray}{gray}{0.95}
+\definecolor{Gray}{gray}{0.85}
+% Bytové okénka
+\usepackage[endianness=big]{bytefield}
+\bytefieldsetup{boxformatting={\centering\footnotesize}}
+\newcommand\bithead[2]{\bitbox[]{#1}{#2}}
+% Obrázky
+\usepackage{graphicx}
+% Sázení algoritmů
+\usepackage[]{algorithm2e}
+% URL ve footnote
+\usepackage{url}
+% Použití speciálních symbolů (např. čtvereček, prázdná množina)
+\usepackage{amssymb}
+% Správné sázení SI jednotek
+\usepackage{siunitx}
+\sisetup{ detect-weight=true, binary-units=true }
+
+% Makro pro symbol dokončeného důkazu
+\newcommand{\proof}{\hfill $\Box$}
+\newcommand{\bigproof}{\hfill $\blacksquare$}
+% Hezčí prázdná množina
+\let\emptyset\varnothing
+
+% Makra pro snazší práci s knihovnou bytefield
+\newcommand{\namebox}[1]{
+  \wordbox[]{1}{\raggedright\footnotesize #1}
+}
+\newcommand{\memsection}[5]{
+	\bytefieldsetup{bitheight=#3\baselineskip}	% define the height of the memsection
+	\bitbox[]{8}{
+    \def\temp{#1}\ifx\temp\empty
+		  \texttt{}	 % print nothing
+    \else
+		  \texttt{0x\uppercase{#1}}	 % print end address
+    \fi
+		\\ \vspace{#3\baselineskip} \vspace{-2\baselineskip} \vspace{-#3pt} % do some spacing
+    \def\temp{#2}\ifx\temp\empty
+		  \texttt{}	 % print nothing
+    \else
+		  \texttt{0x\uppercase{#2}} % print start address
+    \fi
+	}
+  \def\temp{#5}\ifx\temp\empty
+	  \bitbox{16}{#4} % print box with caption
+  \else
+	  \bitbox[#5]{16}{#4} % print box with caption
+  \fi
+}
+\newcommand{\memskippedwords}[3]{
+	\bytefieldsetup{bitheight=#3\baselineskip}	% define the height of the memsection
+	\bitbox[]{8}{
+    \def\temp{#1}\ifx\temp\empty
+		  \texttt{}	 % print nothing
+    \else
+		  \texttt{0x\uppercase{#1}}	 % print end address
+    \fi
+\\
+    \def\temp{#2}\ifx\temp\empty
+		  \texttt{}	 % print nothing
+    \else
+		  \texttt{0x\uppercase{#2}} % print start address
+    \fi
+	}
+	\skippedwords
+}
+
+\newcommand{\colorbitbox}[3]{%
+  \rlap{\bitbox{#2}{\color{#1}\rule{\width}{\height}}}%
+  \bitbox{#2}{#3}}
+
+\newcommand{\backgroundbox}[2]{\rlap{\bitbox{#2}{\color{#1}\rule{\width}{\height}}}}%
+
+% Verb in command argument
+\usepackage{fancyvrb}
+\newcommand\zero{\Verb!0x00! }
+
+\newcommand{\twi}{I$^2$C }
+
+\definecolor{lightcyan}{rgb}{0.84,1,1}
+\definecolor{lightgreen}{rgb}{0.64,1,0.71}
+\definecolor{lightred}{rgb}{1,0.7,0.71}
+
+%%%%%%%%%%%%%%%%%%%%
+% Samotný dokument %
+%%%%%%%%%%%%%%%%%%%%
+\begin{document}
+
+\input{title}
+
+\tableofcontents
+\newpage
+
+
+%########################
+%########################
+\section*{Introduction}
+Bluetooth Low Energy Time Keeper supporting Android shortly just BLETKA is device, which is designed to be able to store accurate current time when requested to do so. This time records are stored inside it and can be fetched later using Bluetooth connection. The device has minimum power requirements, can run on two AAA batteries and can provide its functions through only one single button.
+
+
+%########################
+%########################
+\section{Glimpse at BLETKA Insides}
+
+Following sections should provide a little bit deeper view into some of the decisions, algorithms and concepts, which BLETKA uses and works with internally.
+
+
+%########################
+\subsection{Communication with Modules}
+BLETKA's main part is MCU ATmega328-328P, which is designed as low-power microcontroller. The MCU is connected to Real Time Clock (RTC) module DS1307 (which also contains AT24C32 EEPROM) on TWI/\twi and Bluetooth Low Energy (BLE) module HM-10 on USART. RTC is used to provide accurate time, BLE is used for communication with external devices.
+
+Communication with BLE is interrupt-driven. When a string is about to be send, the procedure always prepares byte into the buffer and goes into sleep mode, from which interrupt will awake it right after the USART buffer is ready to consume another byte.
+
+All functions for \twi and USART communication are written in AVRASM. C language then uses them as a library and provides methods to work with these modules easily.
+
+
+%########################
+\subsubsection{My FLAGS Register}
+\label{sec:mflags}
+
+This register is used to notify about event requirements from buttons. They are set in interrupt routine and should be cleaned when the event is satisfied, because no new event can happen if MF\_B$i$ or MF\_A are not zero. This register (without the MF\_T and MF\_R bits) is shared with the C code through variable \verb|mint_flags|.
+
+\begin{center}
+\begin{bytefield}[bitwidth=0.11111\linewidth]{8}
+  \namebox{MFLAGS} \\
+  \bitheader{0-7} \\
+
+  \bitbox{1}{MF\_A}
+  & \bitbox{1}{MF\_B4}
+  & \bitbox{1}{MF\_B3}
+  & \bitbox{1}{MF\_B2}
+  & \bitbox{1}{MF\_B1}
+  & \bitbox{1}{MF\_B0}
+  & \bitbox{1}{MF\_T}
+  & \bitbox{1}{MF\_R} \\
+\end{bytefield}
+\end{center}
+
+\begin{description}
+  \item [MF\_A] Flag indicating, that device should go to Active state.
+  \item [MF\_B$i$] Flag indicating, that record needs to be saved and the event was raised by pushing $i$-th button.
+  \item [MF\_T] Flag indicating, that the device is currently transmitting string over USART.
+  \item [MF\_R] Flag indicating, that the device is currently receiving string over USART.
+\end{description}
+
+
+%########################
+\subsection{RECMEM}
+
+RECMEM is a term derived from RECords MEMory. It consists of two main parts:
+\begin{description}
+  \item [RECRAM] Memory not requiring long-term storage, contains helpful metadata about RECMEM, located in SRAM
+  \item [RECROM] Long-term memory, used to store the records, located in EEPROM
+\end{description}
+More details are presented in following sections.
+
+
+%########################
+\subsubsection{Real Time Clock Memory}
+\label{sec:rtcmemory}
+Internal memory of DS1307 module looks like this:
+
+\begin{center}
+\begin{bytefield}{16}
+  \memsection{00}{06}{7}{Time}{} \\
+  \memsection{07}{}{1}{Control}{} \\
+  \memsection{08}{}{1}{RAM}{lrt} \\
+  \memsection{}{}{1}{56$\times$8}{lr} \\
+  \memskippedwords{}{}{3} \\
+  \memsection{}{3F}{1}{}{lrb} \\
+\end{bytefield}
+\end{center}
+
+First $\SI{7}{\byte}$ are used to store time information in BCD format, Control register is quite unimportant for this application and the rest (RAM part) is left for user to play with.
+The data remains intact even if the main BLETKA's power source fails under condition, that the backup battery in RTC module still has some juice.
+
+\begin{center}
+\begin{bytefield}[bitwidth=0.11111\linewidth]{8}
+  \bitheader{0-7} \\
+
+  \bitbox{1}{CH}
+  & \bitbox{3}{Seconds 10's}
+  & \bitbox{4}{Seconds 1's} \\
+
+  \bitbox{1}{\color{lightgray}\rule{\width}{\height}}
+  & \bitbox{3}{Minutes 10's}
+  & \bitbox{4}{Minutes 1's} \\
+
+  \bitbox{1}{\color{lightgray}\rule{\width}{\height}}
+  & \bitbox{1}{$\frac{12}{24}$ bit}
+  & \bitbox{2}{Hours 10's}
+  & \bitbox{4}{Hours 1's} \\
+
+  \bitbox{5}{\color{lightgray}\rule{\width}{\height}}
+  & \bitbox{3}{Day} \\
+
+  \bitbox{2}{\color{lightgray}\rule{\width}{\height}}
+  & \bitbox{2}{Date 10's}
+  & \bitbox{4}{Date 1's} \\
+
+  \bitbox{3}{\color{lightgray}\rule{\width}{\height}}
+  & \bitbox{1}{Month 10's}
+  & \bitbox{4}{Month 1's} \\
+
+  \bitbox{4}{Year 10's}
+  & \bitbox{4}{Year 1's} \\
+
+\end{bytefield}
+\end{center}
+
+
+%########################
+\subsubsection{Timestamp Record}
+\label{sec:record}
+
+In order to use available space more efficiently, following record format was designed:
+\begin{center}
+\begin{bytefield}[endianness=little,bitwidth=0.9em]{40}
+  \bitheader{0,5,6,11,12,16,17,21,22,25,26,31,32,39} \\
+
+  \bitbox{6}{SECONDS}
+  & \bitbox{6}{MINUTES}
+  & \bitbox{5}{HOUR}
+  & \bitbox{5}{DAY}
+  & \bitbox{4}{MONTH}
+  & \bitbox{6}{YEAR}
+  & \bitbox{8}{EVOR} \\
+
+\end{bytefield}
+\end{center}
+
+Another view, which captures the structure of a record in bytes, would be:
+\begin{center}
+\begin{bytefield}[bitwidth=0.11111\linewidth]{8}
+  \bitheader{0-7} \\
+
+  \bitbox{6}{SECONDS}
+  & \bitbox{2}{MINUTES} \\
+
+  \bitbox{4}{MINUTES}
+  & \bitbox{4}{HOUR} \\
+
+  \bitbox{1}{HOUR}
+  & \bitbox{5}{DAY}
+  & \bitbox{2}{MONTH} \\
+
+  \bitbox{2}{MONTH}
+  & \bitbox{6}{YEAR} \\
+
+  \bitbox{8}{EVOR} \\
+
+\end{bytefield}
+\end{center}
+
+The record consists of $\SI{5}{\byte}$ in total. SECONDS and MINUTES use in BCD format $\SI{8}{\byte}$ each. That is totally unnecessary, as we can store the same information using only $\SI{6}{\byte}$. Similarly, using the same idea for the rest of the variables, we can get rid of more bits. On top of that, day in week is an information, which can be derived from the rest of them, therefore \textit{record} is not storing it. With this approach, we can compress the time given by RTC module into $\SI{33}{\bit}$s. To make it exactly $\SI{4}{\byte}$ long, the most significant bit of variable YEAR from RTC module is discarded, as $64$ years precision looks satisfiable enough.
+
+The last byte \textit{EVOR} stays for EVent ORigin and contains unique identifier of what caused the record to be created. It's a copy of MFLAGS register (described in \ref{sec:mflags}) without the last two bits. If only single button is wired, this byte is unnecessary and the feature to use it should be disabled to increase the number of records, which can be stored in memory in total.
+
+
+%########################
+\subsubsection{RECRAM}
+
+The RECRAM is present in the RTC DS1307's RAM space. As it was already mentioned above, this has an advantage, that the data stays valid as long as the backup battery in RTC module provides enough power. That is always longer than the main BLETKA's power source, as the backup battery charges itself from the main power source. Also the RTC module consumes less power than the main circuit and the RECROM is present on the same module as well (therefore RECMEM can be located somehow together).
+
+On the other hand, the system is designed so that this information can be stored elsewhere with no problems.
+
+Our new view on the DS1307 memory can now be modified to:
+\begin{center}
+\begin{bytefield}{16}
+  \memsection{00}{06}{7}{Time}{} \\
+  \memsection{07}{}{1}{-- unimportant --}{} \\
+  \begin{rightwordgroup}{RECRAM}
+    \memsection{08}{0A}{3}{MAGIC}{} \\
+    \memsection{0B}{0C}{2}{NUMREC}{} \\
+    \memsection{0C}{0D}{2}{FREESLOT}{}
+  \end{rightwordgroup}\\
+  \memsection{0E}{}{1}{-- unimportant --}{lrt} \\
+  \memskippedwords{}{}{3} \\
+  \memsection{}{3F}{1}{}{lrb} \\
+\end{bytefield}
+\end{center}
+
+Here MAGIC is a string of 3 characters:
+\begin{center}
+\begin{bytefield}[endianness=little,bitwidth=0.11111\linewidth]{3}
+  \namebox{MAGIC} \\
+  \bitboxes{1}{BTK} \\
+  \bitheader{0-2} \\
+\end{bytefield}
+\end{center}
+It's used to determine, if the RECRAM is initialized and if the data is corrupted or not.
+If not present, BLETKA will suppose, that metadata are corrupted, it will recalculate the information and write the calculated metadata with MAGIC back to RECRAM.
+
+The two main metadata variables are unsigned integer values consisting of $\SI{2}{\byte}$ each:
+\begin{center}
+\begin{bytefield}[endianness=little,bitwidth=0.11111\linewidth]{2}
+  \namebox{NUMREC} \\
+  \bitbox{1}{NR\_H}
+  & \bitbox{1}{NR\_L} \\
+  \bitheader{0-1} \\
+\end{bytefield}
+\begin{bytefield}[endianness=little,bitwidth=0.11111\linewidth]{2}
+  \namebox{FREESLOT} \\
+  \bitbox{1}{FS\_H}
+  & \bitbox{1}{FS\_L} \\
+  \bitheader{0-1} \\
+\end{bytefield}
+\end{center}
+
+the purpose of these will be expained in the following section \ref{sec:RECROM}.
+
+
+%########################
+\subsubsection{RECROM}
+\label{sec:RECROM}
+
+In order to store records, AT24C32 \twi Serial EEPROM was chosen to be used. The main reasons for this decision instead of using Atmega328's internal EEPROM are:
+\begin{itemize}
+  \item this memory is available on the same module where RTC is located, therefore it's already connected to the \twi line
+  \item it provides $\SI{4}{\kilo\byte}$, whereas Atmega328 provides $\SI{1}{\kilo\byte}$
+  \item it has endurance at least $10^6$ write cycles, whereas Atmega328 states $10^5$
+\end{itemize}
+If $\SI{5}{\byte}$ type of record is used, this means, that $819$ records can stay in the RECROM.
+
+RECROM is again divided into sections. The first part is called HEADER, it fits into the first $\SI{1}{\byte}$, the rest of the RECROM is either \textit{slot} or unused space.
+
+Slot is simply a block of length \verb|sizeof(record)| and it is designed to store a whole single record. Maximum number of slots (and therefore records) in RECROM is given by, and in this case equals $$\frac{RECROM\_BYTES - RECROM\_HEADER\_LENGTH}{RECORD\_LENGTH} = \frac{4096 - 1}{5} = 819.$$
+
+Variable HEADER contains number from range $[0;sizeof(record)-1]$. This number defines, where the first slot is located, it specifies it by shift to higher address relative to the end of HEADER. For the rest of the slots, the next slot is always located right after the previous one. HEADER is initialized to value 0, therefore the first slot initially starts at address \verb|0x01|.
+\begin{center}
+\begin{bytefield}[endianness=little,bitwidth=1.8em]{18}
+  \namebox{Initial RECROM setup:} \\
+  \bitbox{1}{0}
+  & \bitbox{5}{slot 0}
+  & \bitbox{5}{slot 1}
+  & \bitbox{5}{slot 2}
+  & \bitbox[ltb]{2}{$\dots$} \\
+  \bitheader{0,1,5,6,10,11,15,16} \\
+\end{bytefield}
+\end{center}
+
+RECRAM contains two integeres, which describe basic information about the RECROM and can be used to speed up the process of saving a new record.
+The NUMREC contains number of records currently present in the RECROM, variable FREESLOT contains number of a slot, which is currently waiting to be used for storing next record. Both of them are therefore initially 0.
+
+
+\paragraph{Storing New Record}
+
+When a new record should be stored to RECMEM, metadata from RECRAM are loaded and FREESLOT along with HEADER is used to determine position of the free slot address in RECROM. Record is stored to this slot and both NUMREC and FREESLOT are incremented by one.
+
+In case that RECROM is full, BLETKA will notify about this situation by making an error sound.
+
+
+\paragraph{Removing a Record}
+
+To make minimum number of writes, the deletion is done simply by writing \verb|0x00| into fourth byte of the slot containing the record, which should be deleted. NUMREC variable is decreased, FREESLOT stays unchanged, meaning no new record can be stored in this slot.
+
+
+\paragraph{RECMEM Rotation}
+
+When FREESLOT reaches slot number which is out of range, RECMEM must be so-called \textit{rotated}. This operation completely destroys all records, if needed, they should therefore be transmitted before doing this operation to external device.
+
+Rotation updates the information in HEADER, it updates this variable to $HEADER=(HEADER+1)$ \% \Verb!sizeof(record)!, meaning the new slots will be shifted to a new position. After this, it's made sure, that every third or fourth byte of every slot is containing \verb|0x00|, if not \verb|0x00| is written to the third bit.
+
+This whole procedure was designed to make as equal number of writes to each EEPROM byte cell as possible. Following diagram shows, that this algorithm satisfies this condition exept few bytes on the fringe in the whole memory, these few bytes actualy receive even less number of writes, therefore they are not the bottleneck for EEPROM failure. As a result of this algorithm, it's expected, that the memory can achieve storing at least $819\cdot 5\cdot 10^6$ records in total instead of $10^6$ if naive deletion of all bytes would be used. (Meaning we can store at least $(819\cdot 5\cdot 10^6)/((2063 - 2017 +1)\cdot 365)=238705$ records every day until the device (RTC interpretation) will not work as opposed to only $58$ if naive implementation would be chosen.)
+
+The procedure can take quite a long time, for selected $\SI{4}{\kilo\byte}$ RECROM, it should take about $(20\cdot(4096/5))/1000 = \SI{16.384}{\second}$. ($\SI{20}{\milli\second}$ is delay time required by the EEPROM after each sequential write.) Better approach would made use of page writes, with possible theoretical speed up (not including page read operations) to $(20\cdot(4096/5/32))/1000 = \SI{0.512}{\second}$
+
+
+\paragraph{Recovery from Corruption}
+
+When the battery level in RTC module goes under aproximately $\SI{1.8}{\volt}$ or RECMEM is corrupted any other way, the metadata are not available and must be recalculated again when the power is back on. This procedure is very much possible with as little effort as going once through the whole RECROM (nevertheless, it's too demanding to do it this way everytime we need to store a new record). The procedure just looks at third and fourth byte in every slot using HEADER shift information.
+
+In the following diagrams, the RECROM is drawn linearly, first row of numbers shows number of write operations into the byte cell under the number, green color is used to highlight the HEADER, shades of gray show current slot positions, red color highlights currently unused bytes.
+
+\begin{center}
+\begin{bytefield}[bitheight=\widthof{~$\texttt{rec1}^2$~},endianness=little,bitwidth=1.5em]{26}
+  \namebox{\texttt{recmem\_purge();} -- writes \texttt{0x00} to each cell} \\
+
+  \bytefieldsetup{bitheight=\widthof{~1~}}%
+  \bitboxes[]{1}{11111111111111111\ \dots\ 111111} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\rotatebox{90}{\small \zero}}
+
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{5}{\small\zero}
+
+  \backgroundbox{Gray}{5}%
+  & \bitbox{5}{\small\zero}
+
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{5}{\small\zero}
+
+  & \bitbox{5}{\dots}
+
+  \backgroundbox{Gray}{5}%
+  & \bitbox{5}{\small\zero} \\
+
+  \bitheader{0,1,5,6,10,11,15,16} \\
+\end{bytefield}
+\end{center}
+
+\begin{center}
+\begin{bytefield}[bitheight=\widthof{~$\texttt{rec1}^2$~},endianness=little,bitwidth=1.5em]{26}
+  \namebox{\texttt{save\_rec(rec1); save\_rec(rec2);} -- puts two new records into the memory} \\
+
+  \bytefieldsetup{bitheight=\widthof{~1~}}%
+  \bitboxes[]{1}{1222222222211111\ \ \dots \ \ 11111} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{5}{\small$\texttt{rec1}$}
+
+  \backgroundbox{Gray}{5}%
+  & \bitbox{5}{\small$\texttt{rec2}$}
+
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{5}{\small\zero}
+
+  & \bitbox{5}{\dots}
+
+  \backgroundbox{Gray}{5}%
+  & \bitbox{5}{\small\zero} \\
+
+  \bitheader{0,1,5,6,10,11,15,16} \\
+\end{bytefield}
+\end{center}
+
+
+\begin{center}
+\begin{bytefield}[bitheight=\widthof{~$\texttt{rec1}^2$~},endianness=little,bitwidth=1.5em]{26}
+  \namebox{\texttt{destroy\_rec(0);} -- deletes record at given slot position} \\
+
+  \bytefieldsetup{bitheight=\widthof{~1~}}%
+  \bitboxes[]{1}{12223222222111111111111111} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_0$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_1$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_2$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_4$}}
+
+  \backgroundbox{Gray}{5}%
+  & \bitbox{5}{\small$\texttt{rec2}$}
+
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{5}{\small\zero}
+
+  & \bitbox{5}{\dots}
+
+  \backgroundbox{Gray}{5}%
+  & \bitbox{5}{\small\zero} \\
+
+  \bitheader{0-6,10,11,15,16} \\
+\end{bytefield}
+\end{center}
+
+
+After filling the whole RECROM with records, some of them might be destroyed, let's see how rotation operation handles the situation:
+\begin{center}
+\begin{bytefield}[bitheight=\widthof{~$\texttt{rec1}^2$~},endianness=little,bitwidth=1.5em]{26}
+  \namebox{Full RECROM:} \\
+
+  \bytefieldsetup{bitheight=\widthof{~1~}}%
+  \bitboxes[]{1}{1222322223222222\ \ \dots \ \ 22232} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_0$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_1$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_2$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_4$}}
+
+  \backgroundbox{Gray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec2}_0$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec2}_1$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec2}_2$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec2}_4$}}
+
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec3}_0$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec3}_1$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec3}_2$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec3}_3$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec3}_4$}}
+
+  & \bitbox{5}{\dots}
+
+  \backgroundbox{Gray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}n_0$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}n_1$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}n_2$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}n_4$}}\\
+
+  \bitheader{0-15} \\
+\end{bytefield}
+\end{center}
+
+\begin{center}
+\begin{bytefield}[bitheight=\widthof{~$\texttt{rec1}^2$~},endianness=little,bitwidth=1.5em]{26}
+  \namebox{\texttt{recmem\_rotate();} -- performs the rotation operation} \\
+
+  \bytefieldsetup{bitheight=\widthof{~1~}}%
+  \bitboxes[]{1}{22223222232222322\ \dots \ \ 22232} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\rotatebox{90}{\small $\texttt{0x01}$}}
+
+  \backgroundbox{lightred}{1}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_0$}}
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_1$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_2$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_4$}}
+
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec2}_0$}}
+  \backgroundbox{Gray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec2}_1$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec2}_2$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec2}_4$}}
+
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec3}_0$}}
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec3}_1$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec3}_2$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}_3$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec3}_4$}}
+
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec4}_0$}}
+
+  & \bitbox{4}{\dots}
+
+  \backgroundbox{Gray}{1}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{recn}_0$}}
+  \backgroundbox{lightred}{4}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}n_1$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}n_2$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}n_4$}}\\
+
+  \bitheader{0-16} \\
+\end{bytefield}
+\end{center}
+
+As rotation deletes only when the slot is containing valid record and the write is made into the third byte of a slot after HEADER shift, each slot will have the same number of writes into its cells.
+
+When the RECROM is full once again and rotation is performed:
+\begin{center}
+\begin{bytefield}[bitheight=\widthof{~$\texttt{rec1}^2$~},endianness=little,bitwidth=1.5em]{26}
+  \namebox{\texttt{recmem\_rotate();}} \\
+
+  \bytefieldsetup{bitheight=\widthof{~1~}}%
+  \bitboxes[]{1}{323344333443334433\ \dots \ 32232} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\rotatebox{90}{\small $\texttt{0x02}$}}
+
+  \backgroundbox{lightred}{2}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_0$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}i_0$}}
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}i_1$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}i_2$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}i_4$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}j_0$}}
+  \backgroundbox{Gray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}j_1$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}j_2$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}j_4$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}k_0$}}
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}k_1$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}k_2$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}k_4$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}l_0$}}
+
+  & \bitbox{3}{\dots}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}m_4$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}n_1$}}
+  \backgroundbox{lightred}{3}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}n_2$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}n_4$}}\\
+
+  \bitheader{0-17} \\
+\end{bytefield}
+\end{center}
+
+After doing this 2 more times, let's look at the more interesting fifth rotation:
+\begin{center}
+\begin{bytefield}[bitheight=\widthof{~$\texttt{rec1}^2$~},endianness=little,bitwidth=1.5em]{26}
+  \bytefieldsetup{bitheight=\widthof{~1~}}%
+  \bitboxes[]{1}{4234555445554455544\dots\ 53232} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\rotatebox{90}{\small $\texttt{0x03}$}}
+
+  \backgroundbox{lightred}{3}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_0$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}i_0$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  \backgroundbox{Gray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+
+  & \bitbox{2}{\dots}
+
+  \backgroundbox{Gray}{3}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}n_2$}}
+  \backgroundbox{lightred}{2}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}n_4$}}\\
+\\
+%  \bitheader{0-18} \\
+%#####
+  \bytefieldsetup{bitheight=\widthof{~1~}}%
+  \bitboxes[]{1}{52346666566665666656\dots 64332} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\rotatebox{90}{\small $\texttt{0x04}$}}
+
+  \backgroundbox{lightred}{4}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_0$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}i_0$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  \backgroundbox{Gray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+
+  & \bitbox{1}{\dots}
+
+  \backgroundbox{Gray}{4}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  \backgroundbox{lightred}{1}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}n_4$}}\\
+\\
+%  \bitheader{0-19} \\
+%#####
+  \bytefieldsetup{bitheight=\widthof{~1~}}%
+  \bitboxes[]{1}{6235677777777777\ \ \dots\ \ 75542} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec1}_0$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}i_0$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+
+  \backgroundbox{Gray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+
+  \backgroundbox{lightgray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+
+  & \bitbox{5}{\dots}
+
+  \backgroundbox{Gray}{5}%
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{0x00}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{?}$}}
+  & \bitbox{1}{\rotatebox{90}{\small $\texttt{rec}n_4$}}\\
+
+  \bitheader{0-15} \\
+\end{bytefield}
+\end{center}
+
+As we can see, majority of the bytes receives the same number of writes in their byte cells. One could even use the unused bytes to store another record to make the most out of this. The third and fourth bytes of the slot were used intentionaly, because their valid values can never contain \zero, as third byte contains day in month (1--31) and fourth contains year (17--63), which will not be 0 until April 2064.
+
+
+%########################
+\subsection{CFGMEM}
+This term stays for ConFiGuration MEMory and it's located in device's internal EEPROM. It contains following configuration:
+
+\begin{description}
+  \item [LED] How, if, what and when the LED should indicate actions performed by BLETKA.
+  \item [SPEAKER] How, if, what and when the speaker should indicate actions performed by BLETKA.
+\end{description}
+
+These features are currently not implemented at all.
+
+
+%########################
+%########################
+\section{BLETKA $\leftrightarrow$ Android Protocol}
+
+When a button is pushed for a longer time (roughly $\SI{0.5}{\second}$), BLETKA will wake up its BLE module and prepare itself for communication with external device. This state of BLETKA is in this document called Active. Set of commands, which BLETKA understands is presented in following sections. Simple Android application was written to demostrate functionality of this process of communication in Active mode.
+
+
+%########################
+\subsection{BLETKA Command}
+\label{sec:command}
+
+One single command consists of frames containing at most $\SI{20}{\byte}$, but at least $\SI{3}{\byte}$. Each command starts with unique ID named CID (Command Identifier) and ends with characters \textbackslash r\textbackslash n.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=1.7em]{20}
+  \bitheader{0-1,17-19} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{CID}
+
+  \backgroundbox{lightgray}{17}%
+  & \bitbox{17}{payload}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\$0D}
+  & \bitbox{1}{\$0A} \\
+\end{bytefield}
+\end{flushleft}
+
+This format was selected based on the fact, that BLE module HM-10 internally works with $\SI{20}{\byte}$ long batches and its own commands must end with \textbackslash r~\textbackslash n~$=$ \verb|0x0D 0x0A| characters. The \verb|0x0A| character is used to recognize end of the command and therefore cannot be used elsewhere in its body. All the commands are designed so that \verb|0x0A| does not ever have to be part of the payload.
+
+
+%########################
+\subsection{BLETKA Commands Preview Table}
+
+\begin{center}
+\rowcolors{1}{LightGray}{Gray}
+
+\begin{tabularx}{\textwidth}{|c|c|l|X|}
+\hline
+\hiderowcolors
+CID hex & CID dec & Command Name & Command Description \\
+\hline
+\showrowcolors
+0x80  & 128 & NUM RECS          & Returns RECMEM metadata \\
+0x81  & 129 & LOAD ALL          & Returns all records \\
+0x82  & 130 & LOAD [N]          & Returns specified record \\
+0x83  & 131 & REMOVE ALL        & Removes all records from RECMEM and rotates \\
+0x84  & 132 & REMOVE [N]        & Removes selected record \\
+0x85  & 133 & SAVE [REC]        & Saves record to memory \\
+0x86  & 134 & SET TIME          & Sets internal time of BLETKA  \\
+0x87  & 135 & GET TIME          & Gets internal time of BLETKA \\
+0x88  & 136 & SET LEDMODE [C]   & Sets LED configuration \\
+0x89  & 137 & SET BEEPMODE [C]  & Sets speaker configuration  \\
+0x8A  & 138 & EXIT              & Exits the Active mode \\
+0x8B  & 139 & OK                & Confirmation message \\
+0x8C  & 140 & ERR               & Error message \\
+0x8D  & 141 & RECMEM PURGE      & Writes delete character to whole RECMEM \\
+0x8E  & 142 & RECMEM PRINT      & Prints content of RECMEM \\
+\hline
+\end{tabularx}
+\end{center}
+
+
+%########################
+\subsubsection{NUM RECS Command}
+Returns RECMEM metadata.
+
+The first message returned by BLETKA will contain the content of RECRAM.
+Second message will contain number of records in RECMEM and freeslot variable in human-readable form.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{3}
+  \bitheader{0-2} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x80!}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+
+%########################
+\subsubsection{LOAD ALL Command}
+Returns all records.
+
+This command prompts for all slots in RECMEM. BLETKA will return all slots each in single message of $\SI{5}{\byte}$ in the same order as they are stored.
+
+Some of these records can be invalid, invalid records have \zero byte either at third or fourth position.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{3}
+  \bitheader{0-2} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x81!}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+
+%########################
+\subsubsection{LOAD [N] Command}
+\label{sec:loadn}
+Returns specified record.
+
+This command can be used to retrieve single slot, specified by its position.
+The position should be from range $[0;NUMREC-1]$, to encode the unsigned integer number in command, use human-readable decimal form. The last numeral must be followed by \textbackslash r~\textbackslash n characters.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{11}
+  \bitheader{0-3} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x82!}
+
+  \backgroundbox{lightgray}{8}%
+  & \bitbox{1}{$N_{n}$}
+  & \bitbox{1}{$N_{n-1}$}
+  & \bitbox{1}{$N_{n-2}$}
+  & \bitbox{4}{\dots}
+  & \bitbox{1}{$N_0$}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+The value is then calculated by $N=\sum_{i=0}^n{(N_i - \textrm'0\textrm')\cdot 10^i}$.
+
+
+%########################
+\subsubsection{REMOVE ALL Command}
+Removes all records from RECMEM and rotates.
+
+This command will make sure, that every record is destroyed, the RECMEM is rotated to prepare place for a new set of records. This operation should be used after all records are saved externally and the RECMEM is full.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{3}
+  \bitheader{0-2} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x83!}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+
+%########################
+\subsubsection{REMOVE [N] Command}
+Removes selected record.
+
+Destroys the record by writing \zero character to the fourth byte of a slot at given position. The position form is the same as in LOAD [N] Command\ref{sec:loadn}.
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{11}
+  \bitheader{0-3} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x84!}
+
+  \backgroundbox{lightgray}{8}%
+  & \bitbox{1}{$N_{n}$}
+  & \bitbox{1}{$N_{n-1}$}
+  & \bitbox{1}{$N_{n-2}$}
+  & \bitbox{4}{\dots}
+  & \bitbox{1}{$N_0$}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+
+%########################
+\subsubsection{SAVE [REC] Command}
+Saves record to memory.
+
+Given uncompressed record included in payload section of the command will be put into the RECMEM if free memory is still available. The first 7 bytes of payload should be in BCD form as presented in section \ref{sec:rtcmemory}.
+
+It should be noted, that EVOR must not be equal to \verb|0x0A| as that would cause problems as described in \ref{sec:command}.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{11}
+  \bitheader{0-10} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x85!}
+
+  \backgroundbox{lightgray}{8}%
+  & \bitbox{1}{SEC}
+  & \bitbox{1}{MIN}
+  & \bitbox{1}{HOUR}
+  & \bitbox{1}{DAY}
+  & \bitbox{1}{DATE}
+  & \bitbox{1}{MON}
+  & \bitbox{1}{YEAR}
+  & \bitbox{1}{EVOR}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+
+%########################
+\subsubsection{SET TIME Command}
+Sets internal time of BLETKA.
+
+Stores given payload in BCD form into the RTC module. Content of the payload must be exactly what is going to be stored into the RTC module Time registers. The details about each bit can be found in previous section about the RTC module\ref{sec:rtcmemory}.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{10}
+  \bitheader{0-9} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x86!}
+
+  \backgroundbox{lightgray}{7}%
+  & \bitbox{1}{rtc$_0$}
+  & \bitbox{1}{rtc$_1$}
+  & \bitbox{1}{rtc$_2$}
+  & \bitbox{1}{rtc$_3$}
+  & \bitbox{1}{rtc$_4$}
+  & \bitbox{1}{rtc$_5$}
+  & \bitbox{1}{rtc$_6$}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+
+%########################
+\subsubsection{GET TIME Command}
+Gets internal time of BLETKA.
+
+Reads content of the RTC module Time registers (as described in \ref{sec:rtcmemory}), makes a compressed version (described in section \ref{sec:record}) and sends it in a message back to the connected device.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{3}
+  \bitheader{0-2} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x87!}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+
+%########################
+\subsubsection{SET LEDMODE [C] Command}
+Sets LED configuration.
+
+Currently not implemented.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{4}
+  \bitheader{0-3} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x88!}
+
+  \backgroundbox{lightred}{1}%
+  \bitbox{1}{\Verb!?!}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+
+%########################
+\subsubsection{SET BEEPMODE [C] Command}
+Sets speaker configuration.
+
+Currently not implemented.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{4}
+  \bitheader{0-3} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x89!}
+
+  \backgroundbox{lightred}{1}%
+  \bitbox{1}{\Verb!?!}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+
+%########################
+\subsubsection{EXIT Command}
+Exits the Active mode.
+
+Tells BLETKA, that the device will disconnect shortly after this message. After sending this command, no other commands will be performed until new connection to Active mode is established.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{3}
+  \bitheader{0-2} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x8A!}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+
+%########################
+\subsubsection{OK Command}
+Confirmation message.
+
+Currently not used.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{3}
+  \bitheader{0-2} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x8B!}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+
+%########################
+\subsubsection{ERR Command}
+Error message.
+
+Currently not used.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{3}
+  \bitheader{0-2} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x8C!}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+
+%########################
+\subsubsection{RECMEM PURGE Command}
+Writes delete character to whole RECMEM.
+
+This command will perform write operation of \zero character into the whole RECROM. RECRAM is set to the default values as well.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{3}
+  \bitheader{0-2} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x8D!}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+
+%########################
+\subsubsection{RECMEM PRINT Command}
+Prints content of RECMEM.
+
+After sending this command, BLETKA will return back first $5\cdot \SI{20}{\byte}$ of RECROM. It can be used mainly for debug purposes.
+
+\begin{flushleft}
+\begin{bytefield}[endianness=little,bitwidth=3em]{3}
+  \bitheader{0-2} \\
+
+  \backgroundbox{lightgreen}{1}%
+  \bitbox{1}{\Verb!0x8E!}
+
+  \backgroundbox{Gray}{2}%
+  & \bitbox{1}{\Verb!0x0D!}
+  & \bitbox{1}{\Verb!0x0A!} \\
+\end{bytefield}
+\end{flushleft}
+
+
+
+\end{document}
+
