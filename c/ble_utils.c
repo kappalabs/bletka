@@ -161,6 +161,7 @@ void ble_waiting_wake_up(void) {
 void ble_sleep(void) {
     //NOTE: sometimes sleep does not work if done too quickly
     delay_1s();
+    delay_1s();
 
     /* Disables external device connection notifications */
     ble_receive_buffer_reset();

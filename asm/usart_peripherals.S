@@ -170,10 +170,13 @@ ble_nreceive:
     PUSH  r0
 
     ; Set the number of characters to transmit
-    MOV   LENGTH, r24
+    MOV   r0, r24
 
     ; Store the 'strict' boolean
     MOV   CHAR, r22
+
+    ; LENGTH is located at r22!
+    MOV   LENGTH, r0
 
     ; Wait until conditions are met
 ble_nreceive_loop:

@@ -209,6 +209,7 @@ void loop(void) {
         if (is_activate_flagged()) {
             /* Wake up the BLE module and wait for device connection */
             ble_waiting_wake_up();
+            delay_1s();
 
             speaker_ok();
             ble_send_string("activate flag set");

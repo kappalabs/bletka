@@ -191,6 +191,8 @@ compress_time:
     PUSH  r2
     PUSH  r3
     PUSH  r4
+    PUSH  r5
+    PUSH  r6
 
     ; Sets 'Z' to point into the buffer with data for compression
     LDI   ZH, hi8(_timeram_buff)
@@ -200,19 +202,19 @@ compress_time:
     LD    TEMP, Z+
     ANDI  TEMP, 0x7F
     RCALL bcd_to_binary
-    MOV   r0, TEMP
+    MOV   r2, TEMP
 
     ; 2. byte (minutes) [6 bits]
     LD    TEMP, Z+
     ANDI  TEMP, 0x7F
     RCALL bcd_to_binary
-    MOV   r1, TEMP
+    MOV   r3, TEMP
 
     ; 3. byte (hours) [5 bits]
     LD    TEMP, Z+
     ANDI  TEMP, 0x3F
     RCALL bcd_to_binary
-    MOV   r2, TEMP
+    MOV   r4, TEMP
 
     ; 4. byte (day in week) - we do not care about this one
     LD    TEMP, Z+
@@ -221,13 +223,13 @@ compress_time:
     LD    TEMP, Z+
     ANDI  TEMP, 0x3F
     RCALL bcd_to_binary
-    MOV   r3, TEMP
+    MOV   r5, TEMP
 
     ; 6. byte (month) [4 bits]
     LD    TEMP, Z+
     ANDI  TEMP, 0x1F
     RCALL bcd_to_binary
-    MOV   r4, TEMP
+    MOV   r6, TEMP
 
     ; 7. byte (year) [6 bits]
     LD    TEMP, Z+
@@ -245,69 +247,71 @@ compress_time:
 
     ; Aligns month and year to day
     ROL   TEMP
-    ROL   r4
+    ROL   r6
     ROL   TEMP
-    ROL   r4
+    ROL   r6
     ROL   TEMP
-    ROL   r4
+    ROL   r6
     ROL   TEMP
-    ROL   r4
+    ROL   r6
     ; Aligns month, year and day to hours
     ROL   TEMP
-    ROL   r4
-    ROL   r3
+    ROL   r6
+    ROL   r5
     ROL   TEMP
-    ROL   r4
-    ROL   r3
+    ROL   r6
+    ROL   r5
     ROL   TEMP
-    ROL   r4
-    ROL   r3
+    ROL   r6
+    ROL   r5
     ; Aligns month, year, day and hours to minutes
     ROL   TEMP
+    ROL   r6
+    ROL   r5
     ROL   r4
-    ROL   r3
-    ROL   r2
     ROL   TEMP
+    ROL   r6
+    ROL   r5
     ROL   r4
-    ROL   r3
-    ROL   r2
     ROL   TEMP
+    ROL   r6
+    ROL   r5
     ROL   r4
-    ROL   r3
-    ROL   r2
     ; Aligns month, year, day, hours and minutes to seconds
     ROL   TEMP
+    ROL   r6
+    ROL   r5
     ROL   r4
     ROL   r3
-    ROL   r2
-    ROL   r1
     ROL   TEMP
+    ROL   r6
+    ROL   r5
     ROL   r4
     ROL   r3
-    ROL   r2
-    ROL   r1
     ; Aligns everything to the left fringe
     ROL   TEMP
+    ROL   r6
+    ROL   r5
     ROL   r4
     ROL   r3
     ROL   r2
-    ROL   r1
-    ROL   r0
     ROL   TEMP
+    ROL   r6
+    ROL   r5
     ROL   r4
     ROL   r3
     ROL   r2
-    ROL   r1
-    ROL   r0
 
     ; Stores the compressed data back into given buffer
-    ST    Z+, r0
-    ST    Z+, r1
     ST    Z+, r2
     ST    Z+, r3
     ST    Z+, r4
+    ST    Z+, r5
+    ST    Z+, r6
     ST    Z+, TEMP
 
+    POP   r6
+    POP   r5
     POP   r4
     POP   r3
     POP   r2
