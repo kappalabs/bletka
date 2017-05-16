@@ -26,4 +26,8 @@ BLETKA circuit diagrams:
 ------------------------
 * BLETKA with 5 buttons
 ![BLETKA with 5 buttons](docs/bletka_5.png)
+
+* BLETKA with 1 button
+![BLETKA with 1 button](docs/bletka_1.png)
+![BLETKA with 1 button](docs/bletka_1_brd.png)
    
