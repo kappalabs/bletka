@@ -22,6 +22,8 @@ The project is divided into two main parts:
   2. written in C code
    - program implementing the project using the assembly library
    
-TODO:
-  - schéma zapojení
+BLETKA circuit diagrams:
+------------------------
+* BLETKA with 5 buttons
+![BLETKA with 5 buttons](docs/bletka_5.png)
    
